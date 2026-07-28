@@ -1,0 +1,90 @@
+project:
+  id: example_xenium
+
+paths:
+  data_root: /path/to/data
+  results_root: /path/to/results/example_xenium
+
+schema:
+  cell_id_key: cell_id
+  sample_key: sample_id
+  condition_key: condition
+  cell_type_key: cell_type
+  broad_cell_type_key: cell_type_broad
+  spatial_domain_key: spatial_domain
+  counts_layer: counts
+  spatial_key: spatial
+
+conversion:
+  input_format: xenium
+  join: inner
+  samples:
+    - sample_id: sample_01
+      condition: control
+      input_path: sample_01/outs
+      annotations:
+        path: sample_01/cell_annotations.csv
+        cell_id_column: cell_id
+    - sample_id: sample_02
+      condition: treated
+      input_path: sample_02/outs
+      annotations:
+        path: sample_02/cell_annotations.csv
+        cell_id_column: cell_id
+  output_dir: 01_anndata
+  output_name: example_xenium
+  normalize_target: 10000
+
+cellcharter:
+  input_h5ad: 01_anndata/example_xenium.h5ad
+  output_dir: 02_cellcharter
+  output_name: example_xenium_cellcharter
+  use_rep: X_scVI
+  scvi:
+    enabled: true
+    n_latent: 30
+    n_hidden: 128
+    n_layers: 2
+    dropout_rate: 0.1
+    gene_likelihood: nb
+    max_epochs: 60
+    batch_size: 1024
+    accelerator: auto
+    devices: auto
+  graph:
+    mode: delaunay
+    n_neighs: 6
+    radius: null
+    distance_percentile: 99
+  aggregation:
+    n_layers: 3
+    functions:
+      - mean
+  clustering:
+    min_k: 2
+    max_k: 16
+    max_runs: 10
+    convergence_tolerance: 0.001
+    accelerator: cpu
+    progress_bar: true
+    seed: 0
+
+nncomp:
+  input_h5ad: 02_cellcharter/example_xenium_cellcharter.h5ad
+  output_dir: 03_nncomp
+  graph:
+    method: squidpy_knn
+    n_neighs: 6
+    radius: 30
+
+runtime:
+  python_bin: python3
+  rscript_bin: Rscript
+  r_libs_user: null
+  tmux_session: example_xenium_spatial_overview
+
+review:
+  selected_sample: sample_01
+  selected_domain: "0"
+  selected_source_cell_type: null
+

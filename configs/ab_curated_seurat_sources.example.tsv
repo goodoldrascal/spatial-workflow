@@ -1,0 +1,13 @@
+sample_id	condition	input_path
+naive_70_igg	naive_igg	../data/seurat/naive_70_igg_subclusters.qs
+naive_72_igg	naive_igg	../data/seurat/naive_72_igg_subclusters.qs
+naive_75_igg	naive_igg	../data/seurat/naive_75_igg_subclusters.qs
+naive_77_igg	naive_igg	../data/seurat/naive_77_igg_subclusters.qs
+vap_38_ab	vap_ab	../data/seurat/vap_38_ab_subclusters.qs
+vap_41_ab	vap_ab	../data/seurat/vap_41_ab_subclusters.qs
+vap_49_ab	vap_ab	../data/seurat/vap_49_ab_subclusters.qs
+vap_52_ab	vap_ab	../data/seurat/vap_52_ab_subclusters.qs
+vap_42_igg	vap_igg	../data/seurat/vap_42_igg_subclusters.qs
+vap_46_igg	vap_igg	../data/seurat/vap_46_igg_subclusters.qs
+vap_50_igg	vap_igg	../data/seurat/vap_50_igg_subclusters.qs
+vap_51_igg	vap_igg	../data/seurat/vap_51_igg_subclusters.qs

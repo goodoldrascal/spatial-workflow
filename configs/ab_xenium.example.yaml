@@ -1,0 +1,80 @@
+project:
+  id: ab_xenium
+
+paths:
+  data_root: ..
+  results_root: ../results/ab_xenium
+
+schema:
+  cell_id_key: cell_id
+  sample_key: sample_id
+  condition_key: condition
+  cell_type_key: cluster_sub
+  broad_cell_type_key: celltype_short
+  spatial_domain_key: spatial_domain
+  counts_layer: counts
+  spatial_key: spatial
+
+conversion:
+  input_format: merged_seurat
+  input_path: results/ab_xenium/00_curated_seurat/ab_xenium_curated.qs
+  assay: Xenium
+  layer: counts
+  join: inner
+  output_dir: 01_anndata
+  output_name: ab_xenium
+  normalize_target: 10000
+
+cellcharter:
+  input_h5ad: 01_anndata/ab_xenium.h5ad
+  output_dir: 02_cellcharter
+  output_name: ab_xenium_cellcharter
+  use_rep: X_scVI
+  scvi:
+    enabled: true
+    n_latent: 30
+    n_hidden: 128
+    n_layers: 2
+    dropout_rate: 0.1
+    gene_likelihood: nb
+    max_epochs: 60
+    batch_size: 1024
+    accelerator: cpu
+    devices: 1
+    early_stopping: true
+  graph:
+    mode: delaunay
+    n_neighs: 6
+    radius: null
+    distance_percentile: 99
+  aggregation:
+    n_layers: 3
+    functions:
+      - mean
+  clustering:
+    min_k: 2
+    max_k: 16
+    max_runs: 10
+    convergence_tolerance: 0.001
+    accelerator: cpu
+    progress_bar: true
+    seed: 0
+
+nncomp:
+  input_h5ad: 02_cellcharter/ab_xenium_cellcharter.h5ad
+  output_dir: 03_nncomp
+  graph:
+    method: squidpy_knn
+    n_neighs: 6
+    radius: 30
+
+runtime:
+  python_bin: python3
+  rscript_bin: Rscript
+  r_libs_user: ../.r-lib
+  tmux_session: ab_xenium_spatial_overview
+
+review:
+  selected_sample: vap_46_igg
+  selected_domain: "3"
+  selected_source_cell_type: OLIG_sub7

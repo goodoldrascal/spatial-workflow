@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spatial-workflow"
+version = "0.1.0"
+description = "A reproducible Xenium spatial-transcriptomics workflow."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "anndata",
+  "h5py",
+  "numpy",
+  "pandas",
+  "pyarrow",
+  "pyyaml",
+  "scipy",
+]
+
+[project.optional-dependencies]
+cellcharter = [
+  "cellcharter==0.3.7",
+  "scanpy==1.12",
+  "scvi-tools==1.4.2",
+  "squidpy==1.8.1",
+]
+nncomp = [
+  "spatial-nncomp @ git+https://github.com/goodoldrascal/spatial-nncomp.git@a5b7c4a5f4c52ecc5f0148901d5ee5b76fc523cc",
+]
+notebooks = [
+  "jupyterlab",
+  "matplotlib",
+  "seaborn",
+]
+test = [
+  "nbformat",
+  "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+spatial_workflow = ["resources/*.R"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
