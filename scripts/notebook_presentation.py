@@ -24,12 +24,10 @@ _PRESENTATION = json.loads(PRESENTATION_PATH.read_text(encoding="utf-8"))
 PUBLIC_MARKDOWN = _PRESENTATION["public_markdown"]
 COMPACT_CODE = _PRESENTATION["compact_code"]
 DROP_MARKDOWN_HEADINGS = {
-    key: set(values)
-    for key, values in _PRESENTATION["drop_markdown_headings"].items()
+    key: set(values) for key, values in _PRESENTATION["drop_markdown_headings"].items()
 }
 DROP_CODE_PREFIXES = {
-    key: set(values)
-    for key, values in _PRESENTATION["drop_code_prefixes"].items()
+    key: set(values) for key, values in _PRESENTATION["drop_code_prefixes"].items()
 }
 
 
@@ -100,6 +98,18 @@ def apply_compact_code(notebook, notebook_id: str):
 def apply_notebook_presentation(notebook, notebook_id: str):
     apply_public_markdown(notebook, notebook_id)
     apply_compact_code(notebook, notebook_id)
+    notebook.metadata["kernelspec"] = {
+        "display_name": "Python 3",
+        "language": "python",
+        "name": "python3",
+    }
+    for cell in notebook.cells:
+        if cell.cell_type != "code":
+            continue
+        for output in cell.get("outputs", []):
+            output.get("data", {}).pop(
+                "application/vnd.microsoft.datawrangler.viewer.v0+json", None
+            )
     return notebook
 
 

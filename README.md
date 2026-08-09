@@ -1,8 +1,7 @@
 # spatial-workflow
 
-`spatial-workflow` is a reproducible workflow for Xenium spatial
-transcriptomics. It is being assembled in verified stages from the Mayfield Lab
-analysis workflow.
+`spatial-workflow` is a reproducible, configuration-driven workflow for Xenium
+spatial transcriptomics developed from the Mayfield Lab analysis workflow.
 
 The implemented scope is:
 
@@ -43,7 +42,7 @@ The `nncomp` extra pins the current Git revision. To develop both projects
 together, replace it with the local checkout:
 
 ```bash
-python -m pip install -e ../liana/spatial-nncomp
+python -m pip install -e ../spatial-nncomp
 ```
 
 Copy `configs/example.yaml` to a gitignored local configuration and update its
@@ -105,6 +104,6 @@ provenance contracts.
 
 ## Status
 
-This is an active research workflow with public code and review surfaces through
+The repository provides public workflow code and review surfaces through
 Notebook 08. The full test suite passes locally; large inputs and generated
 results remain intentionally gitignored and are not distributed with the code.

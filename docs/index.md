@@ -15,5 +15,4 @@ The repository documentation is ordinary Markdown kept beside the code.
 - [Using the cNMF notebooks](workflows/cnmf_notebook_user_guide.md)
 - [Using Notebook 08 for condition-blind program review](workflows/cnmf_program_whitelist_review_guide.md)
 
-The Markdown can be rendered with MkDocs later without moving it into a
-separate wiki.
+All pages use relative links and render directly on GitHub.
