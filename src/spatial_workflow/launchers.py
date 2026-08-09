@@ -61,19 +61,26 @@ def write_conversion_script(
 def write_spatial_overview_script(
     config_path: str | Path,
     output_path: str | Path,
+    *,
+    overlap_only: bool = False,
 ) -> Path:
-    """Write an executable CellCharter then spatial-nncomp job."""
+    """Write a full overview job or an overlap-only backfill job."""
 
     config_file = Path(config_path).expanduser().resolve()
     config = load_config(config_file)
-    _require_stage(config, "cellcharter")
     _require_stage(config, "nncomp")
     python_bin = shlex.quote(_python_bin(config))
     quoted_config = shlex.quote(str(config_file))
-    commands = [
-        f"{python_bin} -m spatial_workflow.cellcharter --config {quoted_config}",
-        f"{python_bin} -m spatial_workflow.nncomp --config {quoted_config}",
-    ]
+    if overlap_only:
+        commands = [
+            f"{python_bin} -m spatial_workflow.nncomp "
+            f"--config {quoted_config} --overlap-only"
+        ]
+    else:
+        _require_stage(config, "cellcharter")
+        commands = [
+            f"{python_bin} -m spatial_workflow.overview --config {quoted_config}",
+        ]
     return _write_script(output_path, _job_script(commands))
 
 

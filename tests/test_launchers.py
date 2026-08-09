@@ -56,7 +56,7 @@ def test_write_conversion_script_uses_default_python_and_quotes_config(
     _assert_executable(output)
 
 
-def test_write_spatial_overview_script_uses_configured_python_in_order(
+def test_write_spatial_overview_script_uses_resume_aware_entrypoint(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "workflow.yaml"
@@ -69,12 +69,33 @@ def test_write_spatial_overview_script_uses_configured_python_in_order(
     text = output.read_text(encoding="utf-8")
     python_bin = shlex.quote("/envs/spatial python")
     quoted_config = shlex.quote(str(config_path.resolve()))
-    cellcharter = (
-        f"{python_bin} -m spatial_workflow.cellcharter --config {quoted_config}"
+    overview = (
+        f"{python_bin} -m spatial_workflow.overview --config {quoted_config}"
     )
-    nncomp = f"{python_bin} -m spatial_workflow.nncomp --config {quoted_config}"
 
-    assert text.index(cellcharter) < text.index(nncomp)
+    assert overview in text
+    assert "spatial_workflow.cellcharter" not in text
+    _assert_executable(output)
+
+
+def test_write_spatial_overview_script_can_backfill_overlap_only(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "workflow.yaml"
+    _write_config(config_path, runtime={"python_bin": "/envs/spatial"})
+
+    output = write_spatial_overview_script(
+        config_path,
+        tmp_path / "overlap-only.sh",
+        overlap_only=True,
+    )
+    text = output.read_text(encoding="utf-8")
+
+    assert "spatial_workflow.cellcharter" not in text
+    assert (
+        "/envs/spatial -m spatial_workflow.nncomp "
+        f"--config {config_path.resolve()} --overlap-only"
+    ) in text
     _assert_executable(output)
 
 

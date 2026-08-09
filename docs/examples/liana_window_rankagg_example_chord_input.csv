@@ -1,0 +1,8 @@
+source,target,ligand,receptor,weight_abs,higher_condition,focal
+OLIG_sub9,OLIG_sub9,Entpd1,Adora1,0.1033887264,naive_igg,OLIG_sub9
+OLIG_sub9,OLIG_sub0,Entpd1,Adora1,0.0764183610,naive_igg,OLIG_sub9
+EC,OLIG_sub9,Entpd1,Adora1,0.0217088651,vap_igg,OLIG_sub9
+OLIG_sub8,OLIG_sub9,Entpd1,Adora1,0.0069222664,naive_igg,OLIG_sub9
+OLIG_sub9,AST_sub4,Grn,Sort1,0.2804185997,naive_igg,OLIG_sub9
+OLIG_sub9,OLIG_sub2,Grn,Sort1,0.1547929895,naive_igg,OLIG_sub9
+OLIG_sub5,OLIG_sub9,Grn,Sort1,0.0858534821,naive_igg,OLIG_sub9
