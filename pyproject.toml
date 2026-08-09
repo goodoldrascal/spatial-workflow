@@ -26,12 +26,23 @@ cellcharter = [
   "squidpy==1.8.1",
 ]
 nncomp = [
-  "spatial-nncomp @ git+https://github.com/goodoldrascal/spatial-nncomp.git@a5b7c4a5f4c52ecc5f0148901d5ee5b76fc523cc",
+  "spatial-nncomp @ git+https://github.com/goodoldrascal/spatial-nncomp.git@b7515429fc2da29928194998d6027361676d7951",
+]
+cnmf = [
+  "cnmf==1.7.0",
+  "scanpy==1.12",
+]
+liana = [
+  "liana==1.7.1",
+  "scanpy==1.12",
 ]
 notebooks = [
   "jupyterlab",
   "matplotlib",
+  "plotly",
+  "rpy2",
   "seaborn",
+  "statsmodels",
 ]
 test = [
   "nbformat",
@@ -47,4 +58,3 @@ spatial_workflow = ["resources/*.R"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-

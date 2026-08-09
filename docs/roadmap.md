@@ -1,9 +1,9 @@
 # Roadmap
 
-The workflow will grow one verified stage at a time. Later stages are recorded
-here to keep interfaces consistent without adding empty modules in advance.
+The workflow is organized as independently verified stages. This roadmap
+distinguishes the implemented public workflow from planned extensions.
 
-## 1. Spatial overview
+## 1. Spatial overview  implemented
 
 The current stage converts Seurat exports, bundles, or raw Xenium output into
 the standard AnnData contract, runs CellCharter, and then runs
@@ -11,7 +11,7 @@ the standard AnnData contract, runs CellCharter, and then runs
 cell-type composition, and neighboring cell types, with optional per-domain
 dives.
 
-## 2. Differential expression
+## 2. Differential expression  planned
 
 One replicate-aware pseudobulk runner will support distinct questions:
 
@@ -22,25 +22,25 @@ One replicate-aware pseudobulk runner will support distinct questions:
 Cluster marker discovery is a separate analysis and will not be labeled
 pseudobulk differential expression.
 
-## 3. cNMF
+## 3. cNMF  implemented
 
-cNMF will run on selected broad or fine cell types, including user-defined
-merged labels, with optional restriction to one or more spatial domains.
+cNMF runs on selected broad or fine cell types, including user-defined merged
+labels, with optional restriction to one or more spatial domains.
 
-## 4. Windowed cell-cell communication
+## 4. Windowed cell-cell communication  implemented
 
-Adaptive spatial windows will feed LIANA rank aggregation and pairwise sample
-tables. Configuration will make window geometry, significance rules, minimum
+Adaptive spatial windows feed LIANA rank aggregation and pairwise sample
+tables. Configuration makes window geometry, significance rules, minimum
 support, edge filtering, missing-edge zero filling, condition contrasts, and
 multiple-testing scope explicit.
 
-## 5. Pathway analysis
+## 5. Pathway analysis  implemented
 
-Pathway effects will be assessed with sample-label permutation and RMS distance
-to a reference-condition centroid. Driver tables will rank ligand-receptor
-edges by their contribution to a pathway effect without implying causality.
+Pathway effects are assessed with sample-label permutation and RMS distance to
+a reference-condition centroid. Driver tables rank ligand-receptor edges by
+their contribution to a pathway effect without implying causality.
 
-## 6. Single-cell communication
+## 6. Single-cell communication  planned
 
 Single-cell edge scoring will support contact and secreted modes, retain sender
 cell IDs for secreted edges, and provide explicit, configurable permutation

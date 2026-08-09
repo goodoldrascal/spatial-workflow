@@ -127,10 +127,108 @@ def _abundance_table(
         .rename("n_cells")
         .reset_index()
     )
-    totals = obs.groupby(sample_key, observed=True).size().rename("sample_cells")
-    abundance["sample_cells"] = abundance[sample_key].map(totals)
+    totals = (
+        obs.groupby(sample_key, observed=True)
+        .size()
+        .rename("sample_cells")
+        .reset_index()
+    )
+    abundance = abundance.merge(
+        totals, on=sample_key, how="left", validate="many_to_one"
+    )
     abundance["fraction"] = abundance["n_cells"] / abundance["sample_cells"]
     return abundance
+
+
+def _reuse_cellcharter_labels(
+    data: ad.AnnData,
+    *,
+    config_path: Path,
+    settings: dict[str, Any],
+    schema: dict[str, Any],
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Map labels and AutoK stability from a prior run onto identical cells."""
+
+    reuse = settings["reuse"]
+    source_obs_path = resolve_path(config_path, reuse["source_obs"])
+    source_summary_path = resolve_path(config_path, reuse["source_summary"])
+    source_stability_path = resolve_path(config_path, reuse["source_stability"])
+    source_sample_key = str(reuse["source_sample_key"])
+    source_domain_key = str(reuse["source_domain_key"])
+
+    header = pd.read_csv(source_obs_path, nrows=0).columns
+    source_index_key = str(header[0])
+    source_obs = pd.read_csv(
+        source_obs_path,
+        usecols=[source_index_key, source_sample_key, source_domain_key],
+        index_col=source_index_key,
+        dtype="string",
+    )
+    separator = str(reuse.get("source_index_separator", ":"))
+    source_cell_ids = source_obs.index.astype(str).str.split(
+        separator, n=1
+    ).str[-1]
+    source_index = pd.MultiIndex.from_arrays(
+        [source_obs[source_sample_key].astype(str), source_cell_ids],
+        names=["sample", "cell_id"],
+    )
+    target_index = pd.MultiIndex.from_arrays(
+        [
+            data.obs[schema["sample_key"]].astype(str),
+            data.obs[schema["cell_id_key"]].astype(str),
+        ],
+        names=["sample", "cell_id"],
+    )
+    source_labels = pd.Series(
+        source_obs[source_domain_key].astype(str).to_numpy(),
+        index=source_index,
+    )
+    if source_labels.index.has_duplicates or target_index.has_duplicates:
+        raise ValueError("Cell identity keys must be unique when reusing CellCharter labels")
+
+    mapped = source_labels.reindex(target_index)
+    missing = int(mapped.isna().sum())
+    extra = int(len(source_labels.index.difference(target_index)))
+    if missing or extra:
+        raise ValueError(
+            "Prior CellCharter cells do not match the input AnnData "
+            f"(missing={missing}, extra={extra})"
+        )
+    data.obs[schema["spatial_domain_key"]] = pd.Categorical(mapped.to_numpy())
+
+    with source_summary_path.open(encoding="utf-8") as handle:
+        source_summary = json.load(handle)
+    raw_stability = pd.read_csv(source_stability_path)
+    comparison_columns = [column for column in raw_stability if column != "k"]
+    comparisons = raw_stability[comparison_columns].apply(
+        pd.to_numeric, errors="raise"
+    )
+    stability = pd.DataFrame(
+        {
+            "k": pd.to_numeric(raw_stability["k"], errors="raise").astype(int),
+            "mean_stability": comparisons.mean(axis=1),
+            "sd_stability": comparisons.std(axis=1, ddof=0),
+            "n_comparisons": comparisons.count(axis=1),
+        }
+    )
+    provenance = {
+        "source_obs": str(source_obs_path),
+        "source_summary": str(source_summary_path),
+        "source_stability": str(source_stability_path),
+        "identity_keys": [schema["sample_key"], schema["cell_id_key"]],
+        "source_identity_keys": [
+            source_sample_key,
+            f"index after {separator!r}",
+        ],
+        "matched_cells": int(data.n_obs),
+        "missing_cells": missing,
+        "extra_cells": extra,
+        "source_domain_key": source_domain_key,
+        "target_domain_key": schema["spatial_domain_key"],
+        "best_k": int(source_summary["best_k"]),
+        "peaks": [int(value) for value in source_summary.get("peaks", [])],
+    }
+    return stability, {"raw_stability": raw_stability, "provenance": provenance}
 
 
 def run_cellcharter(config_path: str | Path) -> Path:
@@ -151,9 +249,14 @@ def run_cellcharter(config_path: str | Path) -> Path:
     summary_path = output_dir / f"{stem}.summary.json"
     abundance_path = output_dir / f"{stem}.domain_abundance.csv"
     stability_path = output_dir / f"{stem}.autok_stability.csv"
+    raw_stability_path = output_dir / f"{stem}.autok_stability_comparisons.csv"
+    reuse_enabled = bool(settings.get("reuse", {}).get("enabled", False))
+    expected_outputs = [output_path, summary_path, abundance_path, stability_path]
+    if reuse_enabled:
+        expected_outputs.append(raw_stability_path)
     existing = [
         path
-        for path in (output_path, summary_path, abundance_path, stability_path)
+        for path in expected_outputs
         if path.exists()
     ]
     if existing:
@@ -196,68 +299,94 @@ def run_cellcharter(config_path: str | Path) -> Path:
     use_rep = settings.get("use_rep", "X_scVI")
     use_rep = None if use_rep in (None, "X") else str(use_rep)
     trained_scvi = False
-    if use_rep is not None and use_rep not in data.obsm:
-        scvi_settings = settings.get("scvi", {})
-        if not scvi_settings.get("enabled", True):
-            raise KeyError(f"Configured representation {use_rep!r} is absent and scVI is disabled")
-        _train_scvi(
-            data,
-            use_rep,
-            scvi_settings,
-            counts_layer=counts_layer,
-            sample_key=sample_key,
-            seed=seed,
-        )
-        trained_scvi = True
-
-    try:
-        import cellcharter as cc
-    except ImportError as exc:
-        raise ImportError("cellcharter is required for compartment discovery") from exc
-
     graph = settings.get("graph", {})
-    _build_graph(data, graph, sample_key, spatial_key)
-    distance_percentile = graph.get("distance_percentile", 99)
-    if distance_percentile is not None:
-        cc.gr.remove_long_links(data, distance_percentile=float(distance_percentile))
-
     aggregation = settings.get("aggregation", {})
-    functions = aggregation.get("functions", ["mean"])
-    if isinstance(functions, list) and len(functions) == 1:
-        functions = functions[0]
-    aggregate_key = "X_cellcharter"
-    cc.gr.aggregate_neighbors(
-        data,
-        n_layers=int(aggregation.get("n_layers", 3)),
-        aggregations=functions,
-        use_rep=use_rep,
-        out_key=aggregate_key,
-        sample_key=sample_key,
-    )
+    reuse_provenance: dict[str, Any] | None = None
+    raw_stability: pd.DataFrame | None = None
+    if reuse_enabled:
+        stability, reuse_result = _reuse_cellcharter_labels(
+            data,
+            config_path=config_path,
+            settings=settings,
+            schema=schema,
+        )
+        raw_stability = reuse_result["raw_stability"]
+        reuse_provenance = reuse_result["provenance"]
+        best_k = int(reuse_provenance["best_k"])
+        peaks = list(reuse_provenance["peaks"])
+    else:
+        if use_rep is not None and use_rep not in data.obsm:
+            scvi_settings = settings.get("scvi", {})
+            if not scvi_settings.get("enabled", True):
+                raise KeyError(
+                    f"Configured representation {use_rep!r} is absent and scVI is disabled"
+                )
+            _train_scvi(
+                data,
+                use_rep,
+                scvi_settings,
+                counts_layer=counts_layer,
+                sample_key=sample_key,
+                seed=seed,
+            )
+            trained_scvi = True
 
-    min_k = int(clustering.get("min_k", 2))
-    max_k = int(clustering.get("max_k", 16))
-    max_runs = int(clustering.get("max_runs", 10))
-    if min_k < 2 or max_k < min_k or max_runs < 2:
-        raise ValueError("AutoK requires min_k >= 2, max_k >= min_k, and max_runs >= 2")
-    model = cc.tl.ClusterAutoK(
-        n_clusters=(min_k, max_k),
-        max_runs=max_runs,
-        convergence_tol=float(clustering.get("convergence_tolerance", 0.001)),
-        model_class=cc.tl.GaussianMixture,
-        model_params={
-            "random_state": seed,
-            "trainer_params": {
-                "accelerator": clustering.get("accelerator", "cpu"),
-                "enable_progress_bar": bool(clustering.get("progress_bar", True)),
+        try:
+            import cellcharter as cc
+        except ImportError as exc:
+            raise ImportError(
+                "cellcharter is required for compartment discovery"
+            ) from exc
+
+        _build_graph(data, graph, sample_key, spatial_key)
+        distance_percentile = graph.get("distance_percentile", 99)
+        if distance_percentile is not None:
+            cc.gr.remove_long_links(
+                data, distance_percentile=float(distance_percentile)
+            )
+
+        functions = aggregation.get("functions", ["mean"])
+        if isinstance(functions, list) and len(functions) == 1:
+            functions = functions[0]
+        aggregate_key = "X_cellcharter"
+        cc.gr.aggregate_neighbors(
+            data,
+            n_layers=int(aggregation.get("n_layers", 3)),
+            aggregations=functions,
+            use_rep=use_rep,
+            out_key=aggregate_key,
+            sample_key=sample_key,
+        )
+
+        min_k = int(clustering.get("min_k", 2))
+        max_k = int(clustering.get("max_k", 16))
+        max_runs = int(clustering.get("max_runs", 10))
+        if min_k < 2 or max_k < min_k or max_runs < 2:
+            raise ValueError(
+                "AutoK requires min_k >= 2, max_k >= min_k, and max_runs >= 2"
+            )
+        model = cc.tl.ClusterAutoK(
+            n_clusters=(min_k, max_k),
+            max_runs=max_runs,
+            convergence_tol=float(clustering.get("convergence_tolerance", 0.001)),
+            model_class=cc.tl.GaussianMixture,
+            model_params={
+                "random_state": seed,
+                "trainer_params": {
+                    "accelerator": clustering.get("accelerator", "cpu"),
+                    "enable_progress_bar": bool(
+                        clustering.get("progress_bar", True)
+                    ),
+                },
             },
-        },
-    )
-    model.fit(data, use_rep=aggregate_key)
-    best_k = int(model.best_k)
-    data.obs[domain_key] = pd.Categorical(
-        model.predict(data, use_rep=aggregate_key, k=best_k).astype(str)
-    )
+        )
+        model.fit(data, use_rep=aggregate_key)
+        best_k = int(model.best_k)
+        peaks = np.asarray(model.peaks).astype(int).tolist()
+        data.obs[domain_key] = pd.Categorical(
+            model.predict(data, use_rep=aggregate_key, k=best_k).astype(str)
+        )
+        stability = _stability_table(model)
 
     abundance = _abundance_table(
         data.obs,
@@ -265,11 +394,13 @@ def run_cellcharter(config_path: str | Path) -> Path:
         sample_key=sample_key,
         condition_key=condition_key,
     )
-    stability = _stability_table(model)
+    if raw_stability is not None:
+        raw_stability.to_csv(raw_stability_path, index=False)
     abundance.to_csv(abundance_path, index=False)
     stability.to_csv(stability_path, index=False)
 
     summary = {
+        "mode": "reused_prior_run" if reuse_enabled else "fit",
         "config_path": str(config_path),
         "configuration": config,
         "software": _software_versions(trained_scvi),
@@ -278,9 +409,10 @@ def run_cellcharter(config_path: str | Path) -> Path:
         "shape": list(data.shape),
         "use_rep": use_rep or "X",
         "trained_scvi": trained_scvi,
+        "fitted_cellcharter": not reuse_enabled,
         "spatial_domain_key": domain_key,
         "best_k": best_k,
-        "peaks": np.asarray(model.peaks).astype(int).tolist(),
+        "peaks": peaks,
         "domain_counts": data.obs[domain_key].astype(str).value_counts().sort_index().to_dict(),
         "graph": graph,
         "aggregation": aggregation,
@@ -288,6 +420,9 @@ def run_cellcharter(config_path: str | Path) -> Path:
         "abundance_csv": str(abundance_path),
         "stability_csv": str(stability_path),
     }
+    if reuse_provenance is not None:
+        summary["reuse"] = reuse_provenance
+        summary["raw_stability_csv"] = str(raw_stability_path)
     data.uns["spatial_workflow_cellcharter"] = json.dumps(summary, sort_keys=True)
     data.write_h5ad(output_path, compression="gzip")
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
