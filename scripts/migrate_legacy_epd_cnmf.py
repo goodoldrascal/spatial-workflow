@@ -37,10 +37,6 @@ from spatial_workflow.cnmf import (  # noqa: E402
 )
 
 
-DEFAULT_LEGACY_ROOT = Path(
-    "/stor/scratch/WCAAR/rhyan_scratch/liana/cnmf/runs/"
-    "epd_cluster_sub_cnmf_run"
-)
 LEGACY_SWEEP_NAME = "epd_cluster_sub_all_conditions"
 LEGACY_SELECTED_NAME = "epd_cluster_sub_k5_10_niter100"
 LEGACY_ID_TOKEN = "_subclusters:"
@@ -54,7 +50,7 @@ def _parser() -> argparse.ArgumentParser:
         default=REPO_ROOT / "configs" / "local.yaml",
     )
     parser.add_argument("--lineage", default="epd")
-    parser.add_argument("--legacy-root", type=Path, default=DEFAULT_LEGACY_ROOT)
+    parser.add_argument("--legacy-root", type=Path, required=True)
     return parser
 
 

@@ -36,7 +36,7 @@ If the notebook itself needs a durable change, edit its builder and regenerate
 it rather than editing notebook JSON directly:
 
 ```bash
-/stor/home/ncr828/cci_venv/bin/python3 \
+python3 \
   scripts/build_cnmf_program_whitelist_review_notebook.py
 ```
 
@@ -46,7 +46,7 @@ Start Jupyter from the `spatial-workflow` repository root so every relative
 path resolves correctly:
 
 ```bash
-cd /stor/scratch/WCAAR/rhyan_scratch/spatial-workflow
+cd /path/to/spatial-workflow
 jupyter lab
 ```
 
@@ -494,7 +494,7 @@ the flag to `False` afterward.
 Rebuild the condition-blind metrics and queue from the current whitelist:
 
 ```bash
-/stor/home/ncr828/cci_venv/bin/python3 \
+python3 \
   scripts/build_cnmf_program_review_metrics.py
 ```
 

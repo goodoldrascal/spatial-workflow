@@ -71,7 +71,7 @@ def main() -> None:
                 "spatial_key": "spatial",
             },
             "nncomp": {"input_h5ad": str(source_h5ad)},
-            "runtime": {"cnmf_bin": "/stor/home/ncr828/cci_venv/bin/cnmf"},
+            "runtime": {"cnmf_bin": "cnmf"},
             "cnmf": {
                 "input_h5ad": str(source_h5ad),
                 "output_dir": "cnmf",

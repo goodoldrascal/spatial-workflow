@@ -62,6 +62,7 @@ def build_notebook():
         code(
             """
             import json
+            import os
             import shlex
             import subprocess
             import sys
@@ -112,7 +113,10 @@ def build_notebook():
             OUTPUT_DIR = results_root / "07_liana_window_rankagg"
             ANALYSIS_DIR = OUTPUT_DIR / "analysis"
             CELLCHAT_CSV = Path(
-                "/stor/home/ncr828/projects/Xenium_5k/merged/CellChatDB_interaction.csv"
+                os.environ.get(
+                    "CELLCHAT_CSV",
+                    REPO_ROOT / "resources" / "CellChatDB_interaction.csv",
+                )
             )
             CHORD_SCRIPT = REPO_ROOT / "scripts" / "plot_liana_window_chord.R"
 
@@ -270,7 +274,7 @@ def build_notebook():
             For unattended work, the equivalent CLI is
 
             ```bash
-            /stor/home/ncr828/cci_venv/bin/python3 \
+            python3 \
               scripts/run_liana_window_rankagg.py run \
               --config configs/local.yaml \
               --cellchat-csv /path/to/CellChatDB_interaction.csv

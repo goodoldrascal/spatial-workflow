@@ -16,9 +16,7 @@ import scipy.sparse as sp
 from anndata.io import read_elem
 
 
-DEFAULT_REFERENCE = Path(
-    "/stor/scratch/WCAAR/rhyan_scratch/liana/AB_merged_raw.h5ad"
-)
+DEFAULT_REFERENCE = Path("reference.h5ad")
 REQUIRED_LABELS = ("cluster_sub", "celltype_short", "celltype_full")
 
 
@@ -622,8 +620,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reference",
         type=Path,
-        default=DEFAULT_REFERENCE,
-        help=f"Legacy raw-count H5AD (default: {DEFAULT_REFERENCE})",
+        required=True,
+        help="Legacy raw-count H5AD used for parity validation",
     )
     parser.add_argument("--report", type=Path, help="Optional JSON report path")
     parser.add_argument("--expected-samples", type=int, default=12)

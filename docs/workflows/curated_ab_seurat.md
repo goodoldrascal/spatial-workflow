@@ -13,7 +13,7 @@ object and the twelve sources.
 ## Inputs
 
 - Base object:
-  `/stor/scratch/WCAAR/rhyan_scratch/merged_nihal/merged_xenium_seurat.qs`
+  `/path/to/merged_xenium_seurat.qs`
 - Source manifest:
   `configs/ab_curated_seurat_sources.local.tsv`
 - Portable template: `configs/ab_curated_seurat_sources.example.tsv`
@@ -32,7 +32,7 @@ the preparation notebook.
 
 ```bash
 R_LIBS_USER="$PWD/.r-lib" Rscript scripts/build_ab_curated_merged_seurat.R \
-  --base /stor/scratch/WCAAR/rhyan_scratch/merged_nihal/merged_xenium_seurat.qs \
+  --base /path/to/merged_xenium_seurat.qs \
   --sample-sheet configs/ab_curated_seurat_sources.local.tsv \
   --output results/ab_xenium/00_curated_seurat/ab_xenium_curated.qs
 ```
@@ -43,7 +43,7 @@ transformation explicitly:
 
 ```bash
 R_LIBS_USER="$PWD/.r-lib" Rscript scripts/build_ab_curated_merged_seurat.R \
-  --base /stor/scratch/WCAAR/rhyan_scratch/merged_nihal/merged_xenium_seurat.qs \
+  --base /path/to/merged_xenium_seurat.qs \
   --sample-sheet configs/ab_curated_seurat_sources.local.tsv \
   --output results/ab_xenium/00_curated_seurat/ab_xenium_curated.qs \
   --allow-seurat-merge-suffix

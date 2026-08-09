@@ -27,7 +27,7 @@ exist. Verify these entries under cnmf:
     cnmf:
       input_h5ad: 02_cellcharter/ab_xenium_cellcharter.h5ad
       output_dir: 05_cnmf
-      binary: /stor/home/ncr828/cci_venv/bin/cnmf
+      binary: cnmf
       counts_layer: counts
       cell_type_key: cluster_sub
       compartment_key: spatial_domain

@@ -125,7 +125,7 @@ python3 scripts/build_cnmf_program_whitelist_review_notebook.py
 Build the condition-blind diagnostic table and prioritized review queue with:
 
 ```bash
-/stor/home/ncr828/cci_venv/bin/python3 \
+python3 \
   scripts/build_cnmf_program_review_metrics.py
 ```
 
@@ -144,7 +144,7 @@ After editing the draft whitelist, rebuild the derived usage-enriched master
 object explicitly:
 
 ```bash
-/stor/home/ncr828/cci_venv/bin/python3 \
+python3 \
   scripts/build_selected_cnmf_anndata.py --overwrite
 ```
 
@@ -167,7 +167,7 @@ statistics because sparse-group-lasso penalties are not scale invariant.
 Run the disposable end-to-end smoke workflow with the cNMF environment:
 
 ```bash
-/stor/home/ncr828/cci_venv/bin/python3 tests/smoke_cnmf_workflow.py
+python3 tests/smoke_cnmf_workflow.py
 ```
 
 It creates an 80-cell synthetic count object under `/tmp`, exercises sweep and

@@ -116,7 +116,7 @@ def build_notebook():
             contrasts, or the upstream permutation artifact:
 
             ```bash
-            /stor/home/ncr828/cci_venv/bin/python3 \
+            python3 \
               scripts/build_colocalization_tables.py \
               --config configs/local.yaml --overwrite
             ```

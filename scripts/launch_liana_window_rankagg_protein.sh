@@ -3,9 +3,9 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
-python_bin="${SPATIAL_WORKFLOW_PYTHON:-/stor/home/ncr828/cci_venv/bin/python3}"
+python_bin="${SPATIAL_WORKFLOW_PYTHON:-python3}"
 output_dir="${repo_dir}/results/ab_xenium/07_liana_window_rankagg"
-cellchat_csv="/stor/home/ncr828/projects/Xenium_5k/merged/CellChatDB_interaction.csv"
+cellchat_csv="${CELLCHAT_CSV:?Set CELLCHAT_CSV to the CellChat interaction CSV}"
 log_file="${output_dir}/logs/liana_window_rankagg_protein.log"
 
 mkdir -p "${output_dir}/logs"
