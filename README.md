@@ -85,6 +85,15 @@ Notebook 04 treats directional colocalization as the primary result and
 requires positive within-condition permutation evidence before interpreting a
 between-condition difference. See the
 [directional colocalization guide](docs/workflows/colocalization.md).
+Notebook 04 supports both a true `whole_sample` graph and separate
+`within_compartment` graphs; their artifacts and result directories are kept
+separate.
+
+Whole-sample scope is also explicit downstream. In Notebooks 05–06,
+`COMPARTMENTS="all"` pools the selected cells into one cNMF fit. In Notebook
+07, `COMPARTMENTS=None` builds LIANA windows across the complete biological
+sample without using compartment labels. Explicit compartment lists filter and
+pool cells; they do not silently launch one analysis per domain.
 
 For the cNMF admission workflow,
 `scripts/build_cnmf_program_review_metrics.py` generates condition-blind

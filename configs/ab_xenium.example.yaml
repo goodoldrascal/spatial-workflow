@@ -91,6 +91,9 @@ nncomp:
         - target
     reciprocal_cell_types:
       enabled: true
+      analyses:
+        - within_compartment
+        - whole_sample
       n_permutations: 1000
       seed: 0
       workers: -1
@@ -118,6 +121,7 @@ review:
 
 colocalization:
   output_dir: 04_colocalization_analysis
+  analysis_scope: within_compartment
   k: 2
   min_cells_a: 10
   min_cells_b: 10

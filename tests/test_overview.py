@@ -20,7 +20,10 @@ def _write_config(tmp_path: Path) -> Path:
             "output_dir": "03_nncomp",
             "overlap": {
                 "enabled": True,
-                "reciprocal_cell_types": {"enabled": True},
+                "reciprocal_cell_types": {
+                    "enabled": True,
+                    "analyses": ["within_compartment", "whole_sample"],
+                },
             },
         },
     }
@@ -109,3 +112,34 @@ def test_overview_skips_local_stages_and_backfills_overlap_outputs(
         "ran_permutation_plan",
         "ran_reciprocal_celltype_permutation",
     ]
+
+
+def test_overview_backfills_missing_whole_sample_without_rejecting_existing_within(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_path = _write_config(tmp_path)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    cellcharter, nncomp, overlap, plan, reciprocal = overview._overview_paths(
+        config_path, config
+    )
+    _touch_all(cellcharter)
+    _touch_all(nncomp)
+    _touch_all(overlap)
+    _touch_all(plan)
+    reciprocal["within_compartment_celltype_permutation"].touch()
+    called = []
+
+    def backfill(_):
+        called.append("reciprocal")
+        _touch_all(reciprocal)
+
+    monkeypatch.setattr(
+        overview,
+        "run_reciprocal_celltype_permutation",
+        backfill,
+    )
+
+    result = overview.run_spatial_overview(config_path)
+
+    assert called == ["reciprocal"]
+    assert "ran_reciprocal_celltype_permutation" in result["actions"]

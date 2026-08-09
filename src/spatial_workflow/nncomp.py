@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 import tempfile
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -23,8 +24,12 @@ RANKED_EDGES_FILE = "ranked_neighbor_edges.parquet"
 OVERLAP_FILE = "directional_knn_overlap.parquet"
 PERMUTATION_FILE = "directional_knn_overlap_permutation.parquet"
 RECIPROCAL_CELLTYPE_FILE = "within_compartment_celltype_overlap_permutation.parquet"
+WHOLE_SAMPLE_CELLTYPE_FILE = "whole_sample_celltype_overlap_permutation.parquet"
 PERMUTATION_PLAN_FILE = "label_permutation_plan.parquet"
+WHOLE_SAMPLE_PERMUTATION_PLAN_FILE = "whole_sample_label_permutation_plan.parquet"
 MANIFEST_FILE = "manifest.json"
+
+COLOCALIZATION_ANALYSES = ("within_compartment", "whole_sample")
 
 
 def compartment_abundance(
@@ -248,6 +253,7 @@ def _fresh_output_paths(
     *,
     include_overlap: bool = False,
     include_reciprocal_celltypes: bool = False,
+    reciprocal_analyses: Sequence[str] | None = None,
 ) -> dict[str, Path]:
     outputs = {
         "compartment_abundance": output_dir / ABUNDANCE_FILE,
@@ -265,9 +271,18 @@ def _fresh_output_paths(
             }
         )
     if include_reciprocal_celltypes:
-        outputs["within_compartment_celltype_permutation"] = (
-            output_dir / RECIPROCAL_CELLTYPE_FILE
-        )
+        analyses = tuple(reciprocal_analyses or ("within_compartment",))
+        if "within_compartment" in analyses:
+            outputs["within_compartment_celltype_permutation"] = (
+                output_dir / RECIPROCAL_CELLTYPE_FILE
+            )
+        if "whole_sample" in analyses:
+            outputs["whole_sample_celltype_permutation"] = (
+                output_dir / WHOLE_SAMPLE_CELLTYPE_FILE
+            )
+            outputs["whole_sample_label_permutation_plan"] = (
+                output_dir / WHOLE_SAMPLE_PERMUTATION_PLAN_FILE
+            )
     existing = [path for path in outputs.values() if path.exists()]
     if existing:
         names = ", ".join(path.name for path in existing)
@@ -303,8 +318,11 @@ def _fresh_overlap_output_paths(output_dir: Path) -> dict[str, Path]:
     return outputs
 
 
-def _fresh_reciprocal_celltype_path(output_dir: Path) -> Path:
-    """Return the missing all-source within-compartment artifact path."""
+def _reciprocal_celltype_paths(
+    output_dir: Path,
+    analyses: Sequence[str],
+) -> dict[str, Path]:
+    """Return configured all-cell-type artifacts, including existing paths."""
 
     required = [
         output_dir / MANIFEST_FILE,
@@ -315,12 +333,19 @@ def _fresh_reciprocal_celltype_path(output_dir: Path) -> Path:
         raise FileNotFoundError(
             "Reciprocal cell-type mode requires existing outputs: " + ", ".join(missing)
         )
-    output = output_dir / RECIPROCAL_CELLTYPE_FILE
-    if output.exists():
-        raise FileExistsError(
-            f"Refusing to overwrite reciprocal cell-type output: {output.name}"
+    outputs: dict[str, Path] = {}
+    if "within_compartment" in analyses:
+        outputs["within_compartment_celltype_permutation"] = (
+            output_dir / RECIPROCAL_CELLTYPE_FILE
         )
-    return output
+    if "whole_sample" in analyses:
+        outputs["whole_sample_celltype_permutation"] = (
+            output_dir / WHOLE_SAMPLE_CELLTYPE_FILE
+        )
+        outputs["whole_sample_label_permutation_plan"] = (
+            output_dir / WHOLE_SAMPLE_PERMUTATION_PLAN_FILE
+        )
+    return outputs
 
 
 def _fresh_permutation_plan_path(output_dir: Path) -> Path:
@@ -385,6 +410,33 @@ def _overlap_settings(
     return k_values, analyses, tuple(candidate_scopes)
 
 
+def _colocalization_analyses(overlap_config: dict[str, Any]) -> tuple[str, ...]:
+    settings = overlap_config.get("reciprocal_cell_types", {})
+    analyses = tuple(
+        dict.fromkeys(
+            str(value) for value in settings.get("analyses", ["within_compartment"])
+        )
+    )
+    invalid = sorted(set(analyses).difference(COLOCALIZATION_ANALYSES))
+    if invalid:
+        raise ValueError(
+            "nncomp.overlap.reciprocal_cell_types.analyses only supports "
+            "within_compartment and whole_sample; invalid: " + ", ".join(invalid)
+        )
+    if not analyses:
+        raise ValueError(
+            "nncomp.overlap.reciprocal_cell_types.analyses cannot be empty"
+        )
+    _, overlap_analyses, _ = _overlap_settings(overlap_config)
+    missing = sorted(set(analyses).difference(overlap_analyses))
+    if missing:
+        raise ValueError(
+            "All-cell-type analyses require matching nncomp.overlap.analyses: "
+            + ", ".join(missing)
+        )
+    return analyses
+
+
 def _compute_directional_overlap(
     adata,
     *,
@@ -447,36 +499,106 @@ def _compute_directional_overlap(
     return ranked_edges, overlap, permutation
 
 
-def _compute_reciprocal_celltype_permutation(
+def _compute_reciprocal_celltype_permutations(
     adata,
     ranked_edges: pd.DataFrame,
     *,
     snn,
     schema: dict[str, Any],
     overlap_config: dict[str, Any],
-    permutation_plan: pd.DataFrame,
-) -> pd.DataFrame:
+    analyses: Sequence[str],
+    permutation_plan: pd.DataFrame | None = None,
+    whole_sample_permutation_plan: pd.DataFrame | None = None,
+) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    """Compute efficient all-cell-type nulls for requested spatial scopes."""
+
     settings = overlap_config.get("reciprocal_cell_types", {})
     k_values, _, _ = _overlap_settings(overlap_config)
-    return snn.permutation_within_compartment_all_pairs(
-        ranked_edges,
-        adata.obs,
-        sample_col=schema["sample_key"],
-        condition_col=schema["condition_key"],
-        cell_type_col=schema["cell_type_key"],
-        compartment_col=schema["spatial_domain_key"],
-        k_values=k_values,
-        n_permutations=int(
-            settings.get(
-                "n_permutations",
-                overlap_config.get("n_permutations", 1000),
-            )
-        ),
-        seed=int(settings.get("seed", overlap_config.get("seed", 0))),
-        workers=int(settings.get("workers", overlap_config.get("workers", -1))),
-        progress_every=int(settings.get("progress_every", 0)),
-        permutation_plan=permutation_plan,
+    n_permutations = int(
+        settings.get(
+            "n_permutations",
+            overlap_config.get("n_permutations", 1000),
+        )
     )
+    seed = int(settings.get("seed", overlap_config.get("seed", 0)))
+    workers = int(settings.get("workers", overlap_config.get("workers", -1)))
+    progress_every = int(settings.get("progress_every", 0))
+    common = {
+        "sample_col": schema["sample_key"],
+        "condition_col": schema["condition_key"],
+        "cell_type_col": schema["cell_type_key"],
+        "k_values": k_values,
+        "n_permutations": n_permutations,
+        "seed": seed,
+        "workers": workers,
+        "progress_every": progress_every,
+    }
+    tables: dict[str, pd.DataFrame] = {}
+    plans: dict[str, pd.DataFrame] = {}
+
+    if "within_compartment" in analyses:
+        if permutation_plan is None:
+            permutation_plan = _build_permutation_plan(
+                adata,
+                snn=snn,
+                schema=schema,
+                overlap_config=overlap_config,
+            )
+        tables["within_compartment_celltype_permutation"] = (
+            snn.permutation_within_compartment_all_pairs(
+                ranked_edges,
+                adata.obs,
+                compartment_col=schema["spatial_domain_key"],
+                permutation_plan=permutation_plan,
+                **common,
+            )
+        )
+        plans["label_permutation_plan"] = permutation_plan
+
+    if "whole_sample" in analyses:
+        synthetic_compartment = "__whole_sample__"
+        whole_obs = adata.obs[
+            [
+                schema["sample_key"],
+                schema["condition_key"],
+                schema["cell_type_key"],
+            ]
+        ].copy()
+        whole_obs[synthetic_compartment] = "all"
+        whole_edges = ranked_edges.loc[
+            ranked_edges["candidate_scope"].astype(str).eq("sample")
+        ].copy()
+        if whole_edges.empty:
+            raise ValueError("No sample-scoped ranked edges are available")
+        whole_edges["candidate_scope"] = "sample_compartment"
+        if whole_sample_permutation_plan is None:
+            plan_config = overlap_config.get("permutation_plan", {})
+            whole_sample_permutation_plan = snn.label_permutation_plan(
+                whole_obs,
+                sample_col=schema["sample_key"],
+                cell_type_col=schema["cell_type_key"],
+                compartment_col=synthetic_compartment,
+                n_permutations=n_permutations,
+                seed=int(plan_config.get("seed", seed)),
+                endpoint_roles=tuple(
+                    plan_config.get("endpoint_roles", ["shared", "source", "target"])
+                ),
+            )
+        whole = snn.permutation_within_compartment_all_pairs(
+            whole_edges,
+            whole_obs,
+            compartment_col=synthetic_compartment,
+            permutation_plan=whole_sample_permutation_plan,
+            **common,
+        )
+        whole["analysis"] = "whole_sample"
+        whole["source_compartment"] = "all"
+        whole["neighbor_compartment"] = "all"
+        whole["permutation_strata"] = "sample"
+        tables["whole_sample_celltype_permutation"] = whole
+        plans["whole_sample_label_permutation_plan"] = whole_sample_permutation_plan
+
+    return tables, plans
 
 
 def _build_permutation_plan(
@@ -591,12 +713,16 @@ def run_nncomp(config_path: str | Path) -> dict[str, Path]:
     reciprocal_enabled = overlap_enabled and bool(
         overlap_config.get("reciprocal_cell_types", {}).get("enabled", False)
     )
+    reciprocal_analyses = (
+        _colocalization_analyses(overlap_config) if reciprocal_enabled else ()
+    )
     input_h5ad, output_dir = _resolve_stage_paths(config_file, config)
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = _fresh_output_paths(
         output_dir,
         include_overlap=overlap_enabled,
         include_reciprocal_celltypes=reciprocal_enabled,
+        reciprocal_analyses=reciprocal_analyses,
     )
 
     sample_col = schema["sample_key"]
@@ -653,7 +779,8 @@ def run_nncomp(config_path: str | Path) -> dict[str, Path]:
     ranked_edges = None
     overlap = None
     permutation = None
-    reciprocal_celltypes = None
+    reciprocal_celltypes: dict[str, pd.DataFrame] = {}
+    reciprocal_plans: dict[str, pd.DataFrame] = {}
     permutation_plan = None
     if overlap_enabled:
         permutation_plan = _build_permutation_plan(
@@ -685,18 +812,22 @@ def run_nncomp(config_path: str | Path) -> dict[str, Path]:
             permutation,
         )
         if reciprocal_enabled:
-            reciprocal_celltypes = _compute_reciprocal_celltype_permutation(
-                adata,
-                ranked_edges,
-                snn=snn,
-                schema=schema,
-                overlap_config=overlap_config,
-                permutation_plan=permutation_plan,
+            reciprocal_celltypes, reciprocal_plans = (
+                _compute_reciprocal_celltype_permutations(
+                    adata,
+                    ranked_edges,
+                    snn=snn,
+                    schema=schema,
+                    overlap_config=overlap_config,
+                    analyses=reciprocal_analyses,
+                    permutation_plan=permutation_plan,
+                )
             )
-            _write_single_parquet(
-                outputs["within_compartment_celltype_permutation"],
-                reciprocal_celltypes,
-            )
+            for key, table in reciprocal_celltypes.items():
+                _write_single_parquet(outputs[key], table)
+            for key, table in reciprocal_plans.items():
+                if key != "label_permutation_plan":
+                    _write_single_parquet(outputs[key], table)
 
     input_stat = input_h5ad.stat()
     manifest = {
@@ -752,11 +883,14 @@ def run_nncomp(config_path: str | Path) -> dict[str, Path]:
                     if reciprocal_enabled
                     else None
                 ),
-                "rows": (
-                    int(len(reciprocal_celltypes))
-                    if reciprocal_celltypes is not None
-                    else 0
-                ),
+                "analyses": list(reciprocal_analyses),
+                "rows_by_analysis": {
+                    analysis: int(
+                        len(reciprocal_celltypes[f"{analysis}_celltype_permutation"])
+                    )
+                    for analysis in reciprocal_analyses
+                    if f"{analysis}_celltype_permutation" in reciprocal_celltypes
+                },
             },
         },
         "data": {
@@ -950,7 +1084,7 @@ def run_permutation_plan(config_path: str | Path) -> dict[str, Path]:
 def run_reciprocal_celltype_permutation(
     config_path: str | Path,
 ) -> dict[str, Path]:
-    """Backfill all-source within-compartment nulls from saved ranked edges."""
+    """Backfill missing all-cell-type nulls from saved ranked edges."""
 
     try:
         import anndata as ad
@@ -968,12 +1102,22 @@ def run_reciprocal_celltype_permutation(
     settings = overlap_config.get("reciprocal_cell_types", {})
     if not bool(settings.get("enabled", False)):
         raise ValueError("nncomp.overlap.reciprocal_cell_types.enabled must be true")
+    analyses = _colocalization_analyses(overlap_config)
 
     input_h5ad, output_dir = _resolve_stage_paths(config_file, config)
-    output_path = _fresh_reciprocal_celltype_path(output_dir)
+    output_paths = _reciprocal_celltype_paths(output_dir, analyses)
     manifest_path = output_dir / MANIFEST_FILE
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     _validate_manifest_input(manifest, input_h5ad)
+    table_keys = {analysis: f"{analysis}_celltype_permutation" for analysis in analyses}
+    pending = tuple(
+        analysis
+        for analysis, key in table_keys.items()
+        if not output_paths[key].exists()
+    )
+    if not pending:
+        return {key: path for key, path in output_paths.items() if path.exists()}
+
     ranked_edges = pd.read_parquet(
         output_dir / RANKED_EDGES_FILE,
         columns=[
@@ -983,28 +1127,33 @@ def run_reciprocal_celltype_permutation(
             "neighbor_rank",
         ],
     )
+    permutation_plan = None
+    plan_path = output_dir / PERMUTATION_PLAN_FILE
+    if "within_compartment" in pending and plan_path.exists():
+        permutation_plan = pd.read_parquet(plan_path)
+    whole_sample_plan = None
+    whole_sample_plan_path = output_dir / WHOLE_SAMPLE_PERMUTATION_PLAN_FILE
+    if "whole_sample" in pending and whole_sample_plan_path.exists():
+        whole_sample_plan = pd.read_parquet(whole_sample_plan_path)
+
     adata = ad.read_h5ad(input_h5ad, backed="r")
     try:
-        plan_path = output_dir / PERMUTATION_PLAN_FILE
-        if plan_path.exists():
-            permutation_plan = pd.read_parquet(plan_path)
-        else:
-            permutation_plan = _build_permutation_plan(
-                adata,
-                snn=snn,
-                schema=schema,
-                overlap_config=overlap_config,
-            )
-            _write_single_parquet(plan_path, permutation_plan)
-        reciprocal = _compute_reciprocal_celltype_permutation(
+        tables, plans = _compute_reciprocal_celltype_permutations(
             adata,
             ranked_edges,
             snn=snn,
             schema=schema,
             overlap_config=overlap_config,
+            analyses=pending,
             permutation_plan=permutation_plan,
+            whole_sample_permutation_plan=whole_sample_plan,
         )
-        _write_single_parquet(output_path, reciprocal)
+        for key, table in tables.items():
+            _write_single_parquet(output_paths[key], table)
+        for key, table in plans.items():
+            path = plan_path if key == "label_permutation_plan" else output_paths[key]
+            if not path.exists():
+                _write_single_parquet(path, table)
     finally:
         if getattr(adata, "file", None) is not None:
             adata.file.close()
@@ -1012,23 +1161,24 @@ def run_reciprocal_celltype_permutation(
     manifest["config_path"] = str(config_file)
     manifest["configuration"] = config
     directional = manifest.setdefault("directional_overlap", {})
-    directional["reciprocal_cell_types"] = {
-        "enabled": True,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        "configuration": settings,
-        "rows": int(len(reciprocal)),
-        "source_cell_types": int(reciprocal["source_cell_type"].nunique()),
-        "neighbor_cell_types": int(reciprocal["neighbor_cell_type"].nunique()),
-    }
-    directional["permutation_plan"] = {
-        "rows": int(len(permutation_plan)),
-        "endpoint_roles": sorted(permutation_plan["endpoint_role"].unique()),
-        "algorithm": str(permutation_plan["algorithm"].iloc[0]),
-    }
-    manifest.setdefault("outputs", {})["label_permutation_plan"] = PERMUTATION_PLAN_FILE
-    manifest.setdefault("outputs", {})[
-        "within_compartment_celltype_permutation"
-    ] = output_path.name
+    summary = directional.setdefault("reciprocal_cell_types", {})
+    summary.update(
+        {
+            "enabled": True,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "configuration": settings,
+            "analyses": list(analyses),
+        }
+    )
+    rows_by_analysis = summary.setdefault("rows_by_analysis", {})
+    for analysis, key in table_keys.items():
+        if key in tables:
+            rows_by_analysis[analysis] = int(len(tables[key]))
+    for key, path in output_paths.items():
+        if path.exists():
+            manifest.setdefault("outputs", {})[key] = path.name
+    if plan_path.exists():
+        manifest.setdefault("outputs", {})["label_permutation_plan"] = plan_path.name
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -1041,7 +1191,7 @@ def run_reciprocal_celltype_permutation(
         handle.write("\n")
         temporary_manifest = Path(handle.name)
     temporary_manifest.replace(manifest_path)
-    return {"within_compartment_celltype_permutation": output_path}
+    return {key: path for key, path in output_paths.items() if path.exists()}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1063,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
     modes.add_argument(
         "--reciprocal-celltypes-only",
         action="store_true",
-        help="Backfill all-source within-compartment permutation output.",
+        help="Backfill missing all-cell-type permutation outputs for configured scopes.",
     )
     return parser
 

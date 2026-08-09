@@ -72,7 +72,7 @@ The controls have the following meanings:
 | ANALYSIS_NAME | Output-directory name. Supply a unique name for any custom cell-type, compartment, condition, or annotation-key selection. |
 | CELL_TYPE_KEY | Optional adata.obs column override. None uses cnmf.cell_type_key from the YAML. |
 | CELL_TYPES | Exact included values from the configured cell_type_key. None uses the configured lineage list. A custom lineage must explicitly list every included cell type; all is not accepted. |
-| COMPARTMENTS | "all", one exact value, or a list of exact spatial_domain values. |
+| COMPARTMENTS | `"all"` for one pooled no-compartment cNMF input, or one/list of exact `spatial_domain` values to filter before the fit. |
 | CONDITIONS | "all", one exact value, or a list of exact condition values. |
 | SELECTED_K | K used only for the high-replicate selected-K consensus run. None uses the configured template K. It does not control the sweep. |
 | WORKERS | Optional worker override. None uses the configuration. Keep the same worker count when resuming an existing collection. |

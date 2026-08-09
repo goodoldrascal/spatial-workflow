@@ -18,6 +18,8 @@ from .nncomp import (
     RANKED_EDGES_FILE,
     RECIPROCAL_CELLTYPE_FILE,
     SUMMARY_FILE,
+    WHOLE_SAMPLE_CELLTYPE_FILE,
+    WHOLE_SAMPLE_PERMUTATION_PLAN_FILE,
     run_directional_overlap,
     run_nncomp,
     run_permutation_plan,
@@ -72,11 +74,24 @@ def _overview_paths(config_path: Path, config: dict[str, Any]) -> tuple[
         "directional_knn_overlap": nncomp_dir / OVERLAP_FILE,
         "directional_knn_overlap_permutation": nncomp_dir / PERMUTATION_FILE,
     }
-    reciprocal_paths = {
-        "within_compartment_celltype_permutation": (
+    reciprocal_settings = (
+        config["nncomp"].get("overlap", {}).get("reciprocal_cell_types", {})
+    )
+    reciprocal_analyses = tuple(
+        reciprocal_settings.get("analyses", ["within_compartment"])
+    )
+    reciprocal_paths = {}
+    if "within_compartment" in reciprocal_analyses:
+        reciprocal_paths["within_compartment_celltype_permutation"] = (
             nncomp_dir / RECIPROCAL_CELLTYPE_FILE
         )
-    }
+    if "whole_sample" in reciprocal_analyses:
+        reciprocal_paths["whole_sample_celltype_permutation"] = (
+            nncomp_dir / WHOLE_SAMPLE_CELLTYPE_FILE
+        )
+        reciprocal_paths["whole_sample_label_permutation_plan"] = (
+            nncomp_dir / WHOLE_SAMPLE_PERMUTATION_PLAN_FILE
+        )
     permutation_plan_paths = {
         "label_permutation_plan": nncomp_dir / PERMUTATION_PLAN_FILE
     }
@@ -118,9 +133,10 @@ def run_spatial_overview(config_path: str | Path) -> dict[str, Any]:
         .get("enabled", False)
     )
     overlap_state = _classify(overlap_paths, "directional overlap")
-    reciprocal_state = _classify(reciprocal_paths, "reciprocal cell-type overlap")
+    reciprocal_complete = all(path.exists() for path in reciprocal_paths.values())
+    reciprocal_present = any(path.exists() for path in reciprocal_paths.values())
     if nncomp_state == "missing":
-        if overlap_state != "missing" or reciprocal_state != "missing":
+        if overlap_state != "missing" or reciprocal_present:
             raise RuntimeError(
                 "Directional-overlap outputs exist without the base nncomp contract"
             )
@@ -138,7 +154,7 @@ def run_spatial_overview(config_path: str | Path) -> dict[str, Any]:
             actions.append("ran_permutation_plan")
         elif overlap_enabled:
             actions.append("used_existing_permutation_plan")
-        if reciprocal_enabled and reciprocal_state == "missing":
+        if reciprocal_enabled and not reciprocal_complete:
             run_reciprocal_celltype_permutation(config_file)
             actions.append("ran_reciprocal_celltype_permutation")
         elif reciprocal_enabled:

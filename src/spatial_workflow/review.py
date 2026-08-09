@@ -19,6 +19,8 @@ from .nncomp import (
     RANKED_EDGES_FILE,
     RECIPROCAL_CELLTYPE_FILE,
     SUMMARY_FILE,
+    WHOLE_SAMPLE_CELLTYPE_FILE,
+    WHOLE_SAMPLE_PERMUTATION_PLAN_FILE,
 )
 
 
@@ -79,6 +81,8 @@ def load_review_outputs(output_dir: str | Path) -> dict[str, Any]:
         "directional_knn_overlap": OVERLAP_FILE,
         "directional_knn_overlap_permutation": PERMUTATION_FILE,
         "within_compartment_celltype_permutation": RECIPROCAL_CELLTYPE_FILE,
+        "whole_sample_celltype_permutation": WHOLE_SAMPLE_CELLTYPE_FILE,
+        "whole_sample_label_permutation_plan": (WHOLE_SAMPLE_PERMUTATION_PLAN_FILE),
     }
     for key, filename in optional_parquet.items():
         path = root / filename
@@ -170,8 +174,9 @@ def reciprocal_celltype_zscores(
     *,
     z_column: str,
     selected_compartment: str | None = None,
+    analysis_scope: str = "within_compartment",
 ) -> pd.DataFrame:
-    """Pair A-to-B and B-to-A cell-type z-scores in the same compartment."""
+    """Pair A-to-B and B-to-A scores in one spatial analysis scope."""
 
     identity = ["condition", "analysis", "k", "source_compartment"]
     if "sample" in overlap_table.columns:
@@ -188,7 +193,7 @@ def reciprocal_celltype_zscores(
         raise KeyError("Missing reciprocal cell-type columns: " + ", ".join(missing))
 
     selected = overlap_table.loc[
-        overlap_table["analysis"].astype(str).eq("within_compartment")
+        overlap_table["analysis"].astype(str).eq(str(analysis_scope))
         & overlap_table["source_compartment"]
         .astype(str)
         .eq(overlap_table["neighbor_compartment"].astype(str))
@@ -343,6 +348,7 @@ def prepare_reciprocal_celltype_plot(
     overlap_table: pd.DataFrame,
     *,
     compartment: str | int | None = None,
+    analysis_scope: str = "within_compartment",
     cell_types_a: str | list[str] | tuple[str, ...] | set[str] | None = None,
     cell_types_b: str | list[str] | tuple[str, ...] | set[str] | None = None,
     k_value: int = 2,
@@ -354,8 +360,10 @@ def prepare_reciprocal_celltype_plot(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Prepare matched sample and condition reciprocal cell-type z-scores.
 
-    ``compartment=None`` retains every within-compartment context across the
-    complete samples. Cell-type filters define the A-to-B axis orientation and
+    ``analysis_scope`` selects a true whole-sample graph or separate
+    within-compartment graphs. ``compartment=None`` only removes the display
+    filter; it never pools compartment-stratified rows. Cell-type filters define
+    the A-to-B axis orientation and
     accept either one name or multiple names. Condition means are calculated
     before z-score display filtering, avoiding selection-biased means.
     """
@@ -386,7 +394,7 @@ def prepare_reciprocal_celltype_plot(
         raise KeyError("Missing reciprocal plot columns: " + ", ".join(missing))
 
     selected = overlap_table.loc[
-        overlap_table["analysis"].astype(str).eq("within_compartment")
+        overlap_table["analysis"].astype(str).eq(str(analysis_scope))
         & overlap_table["source_compartment"]
         .astype(str)
         .eq(overlap_table["neighbor_compartment"].astype(str))
@@ -410,7 +418,7 @@ def prepare_reciprocal_celltype_plot(
 
     identity = ["condition", "sample", "analysis", "k", "source_compartment"]
     reciprocal = overlap_table.loc[
-        overlap_table["analysis"].astype(str).eq("within_compartment")
+        overlap_table["analysis"].astype(str).eq(str(analysis_scope))
         & overlap_table["k"].eq(k_value)
     ].copy()
     paired = selected.merge(
@@ -634,6 +642,7 @@ def plot_reciprocal_celltype_overlap(
     overlap_table: pd.DataFrame,
     *,
     compartment: str | int | None = None,
+    analysis_scope: str = "within_compartment",
     cell_types_a: str | list[str] | tuple[str, ...] | set[str] | None = None,
     cell_types_b: str | list[str] | tuple[str, ...] | set[str] | None = None,
     k_value: int = 2,
@@ -646,14 +655,16 @@ def plot_reciprocal_celltype_overlap(
 ):
     """Return sample and condition reciprocal z-score panels side by side.
 
-    ``compartment=None`` is the whole-sample review view: all within-compartment
-    contexts are retained. ``cell_types_a`` and ``cell_types_b`` accept a
+    ``analysis_scope="whole_sample"`` uses the pooled sample graph.
+    ``compartment=None`` only removes a display filter and does not pool rows.
+    ``cell_types_a`` and ``cell_types_b`` accept a
     single cell type, multiple cell types, or ``None`` for all types.
     """
 
     sample_pairs, condition_pairs = prepare_reciprocal_celltype_plot(
         overlap_table,
         compartment=compartment,
+        analysis_scope=analysis_scope,
         cell_types_a=cell_types_a,
         cell_types_b=cell_types_b,
         k_value=k_value,
@@ -664,7 +675,15 @@ def plot_reciprocal_celltype_overlap(
         z_direction=z_direction,
     )
     if title is None:
-        scope = "whole sample" if compartment is None else f"compartment {compartment}"
+        scope = (
+            "whole sample"
+            if analysis_scope == "whole_sample"
+            else (
+                "all compartment-specific rows"
+                if compartment is None
+                else f"compartment {compartment}"
+            )
+        )
         title = f"Reciprocal cell-type z-scores: {scope}, k={k_value}"
     figure = plot_reciprocal_celltype_zscores(
         sample_pairs,
@@ -674,6 +693,7 @@ def plot_reciprocal_celltype_overlap(
     )
     figure.update_layout(
         meta={
+            "analysis_scope": str(analysis_scope),
             "compartment": "all" if compartment is None else str(compartment),
             "cell_types_a": (
                 "all"

@@ -18,6 +18,7 @@ def _row(
     sample="s1",
     condition="control",
     compartment="3",
+    analysis="within_compartment",
     k=2,
     n_source_cells=10,
     n_neighbor_cells=20,
@@ -25,7 +26,7 @@ def _row(
     return {
         "condition": condition,
         "sample": sample,
-        "analysis": "within_compartment",
+        "analysis": analysis,
         "k": k,
         "source_compartment": compartment,
         "neighbor_compartment": compartment,
@@ -214,3 +215,38 @@ def test_prepare_reciprocal_plot_supports_celltype_sign_and_magnitude_filters():
     assert figure.layout.meta["k"] == 2
     assert figure.layout.meta["cell_types_a"] == ["A"]
     assert figure.layout.meta["condition_points"] == 2
+
+
+def test_reciprocal_plot_supports_true_whole_sample_scope():
+    overlap = pd.DataFrame(
+        [
+            _row(
+                "A",
+                "B",
+                2.0,
+                analysis="whole_sample",
+                compartment="all",
+            ),
+            _row(
+                "B",
+                "A",
+                3.0,
+                analysis="whole_sample",
+                compartment="all",
+                n_source_cells=20,
+                n_neighbor_cells=10,
+            ),
+        ]
+    )
+
+    figure = plot_reciprocal_celltype_overlap(
+        overlap,
+        analysis_scope="whole_sample",
+        compartment="all",
+        min_samples=1,
+    )
+
+    assert figure.layout.meta["analysis_scope"] == "whole_sample"
+    assert figure.layout.title.text.startswith(
+        "Reciprocal cell-type z-scores: whole sample"
+    )

@@ -11,24 +11,48 @@ Start from the repository root after Notebook 03 and the all-source nearest
 neighbor permutation stage have completed:
 
 ```bash
+python3 -m spatial_workflow.nncomp \
+  --config configs/local.yaml \
+  --reciprocal-celltypes-only
+
 python3 scripts/build_colocalization_tables.py \
   --config configs/local.yaml \
+  --analysis-scope whole_sample \
   --overwrite
 
 jupyter lab notebooks/04_colocalization_analysis.ipynb
 ```
 
-The table builder performs the sample-level aggregation, limma comparison,
-exact permutation test, leave-one-out stability calculation, and CSV writing.
+The first command computes only missing configured all-cell-type permutation
+artifacts, so it preserves an accepted within-compartment result when adding
+whole-sample support. The table builder then performs the sample-level
+aggregation, limma comparison, exact permutation test, leave-one-out stability
+calculation, and CSV writing.
 Notebook 04 is a review layer: changing its filters or plotting controls does
 not rewrite the complete result tables.
+
+## Choose the spatial scope
+
+Set `colocalization.analysis_scope` in `configs/local.yaml`, or use the CLI
+override shown above:
+
+- `whole_sample` pools all cells within each biological sample, constructs one
+  sample-wide neighbor graph, and shuffles cell-type labels across that sample.
+  It does not use compartment assignments.
+- `within_compartment` constructs and tests a separate graph inside each
+  sample-compartment stratum and shuffles labels within that stratum.
+
+These are different estimands, not display filters. Setting `compartments=None`
+in a table helper only displays every compartment-specific row; it does not
+create a pooled result. Generated tables live in separate
+`04_colocalization_analysis/<analysis_scope>/` directories.
 
 ## Three quantities answer different questions
 
 | Quantity | Interpretation |
 | --- | --- |
 | `coefficient` | Observed fraction of source cells with at least one target cell among their first `k` neighbors |
-| `delta` | Observed coefficient minus its within-sample, within-domain label-permutation null |
+| `delta` | Observed coefficient minus the label-permutation null for the selected spatial scope |
 | `contrast_delta` | Numerator-condition mean delta minus denominator-condition mean delta |
 
 A nonzero coefficient means the cell types touch often enough to measure. It
@@ -66,7 +90,7 @@ the hover text and detail table when making multiple-testing claims.
 
 ## Read the primary plot
 
-Each row is one directed source→target relationship in one spatial domain:
+Each row is one directed source→target relationship in the selected spatial context. Whole-sample rows are labeled `Whole sample`; compartment analyses retain their domain label:
 
 1. **Observed neighborhood coefficient** shows how common the relationship is
    in each condition.
@@ -90,8 +114,8 @@ leave-one-out stability.
 4. Enable `show_z_diagnostics` only when sample-level null-standardized
    geometry is needed for troubleshooting.
 
-Complete unfiltered tables remain under the configured colocalization output
-directory. The principal files are:
+Complete unfiltered tables remain under the configured scope-specific
+colocalization output directory. The principal files are:
 
 - `all_directional_within_condition_stats.csv`;
 - `all_reciprocal_within_condition_stats.csv`;

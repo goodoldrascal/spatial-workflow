@@ -25,6 +25,9 @@ conditions and all spatial domains:
 
 Lineages are explicit lists. No substring or regular-expression matching is
 used. Domains and conditions accept one value, repeated values, or `all`.
+`compartments: all` removes the compartment filter and pools all selected
+lineage cells into one cNMF fit. cNMF does not construct a spatial-neighbor
+graph or fit separate domain models unless separate analyses are launched.
 The configuration also records the one astrocyte and five oligodendrocytes
 excluded from the earlier accepted inputs because they have only 1–3 total
 transcripts and zero counts among cNMF's selected overdispersed genes.

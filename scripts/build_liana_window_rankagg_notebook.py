@@ -130,8 +130,11 @@ def build_notebook():
             ## Analysis scope and workflow parameters
 
             `CELL_TYPES` and `COMPARTMENTS` restrict cells before any window is
-            built. Multiple compartments are pooled within each biological sample;
-            they are not analyzed as separate runs. The LR space can be the local
+            built. `COMPARTMENTS=None` is a true whole-sample analysis: all cells in
+            each biological sample are eligible and window construction does not use
+            compartment labels. An explicit compartment list filters cells first;
+            the selected domains are then pooled rather than analyzed as separate
+            runs. The LR space can be the local
             CellChat table, an arbitrary custom CSV with `ligand` and `receptor`
             columns, or a native LIANA resource such as `mouseconsensus`. Pathway
             summaries require pathway metadata: CellChat supplies it, while a
@@ -174,7 +177,7 @@ def build_notebook():
             """
             # None means all available values. These filters are applied before windows.
             CELL_TYPES = None          # e.g. ["Astrocyte", "Microglia"]
-            COMPARTMENTS = None         # e.g. ["0", "3"]; selected domains are pooled
+            COMPARTMENTS = None        # true whole sample; or e.g. ["0", "3"] pooled
 
             # LR_RESOURCE_MODE: "cellchat", "custom", or "liana".
             LR_RESOURCE_MODE = "cellchat"

@@ -24,6 +24,7 @@ CONTRAST_RECIPROCAL_FILE = "all_reciprocal_limma.csv"
 CONTRAST_SAMPLE_COUNTS_FILE = "all_sample_celltype_counts.csv"
 CONTRAST_SUPPORT_FILE = "contrast_support_summary.csv"
 MANIFEST_FILE = "manifest.json"
+VALID_ANALYSIS_SCOPES = ("within_compartment", "whole_sample")
 
 WITHIN_CONDITION_KEYS = [
     "condition",
@@ -59,6 +60,40 @@ def _bh_with_nan(values: pd.Series) -> pd.Series:
             method="fdr_bh",
         )[1]
     return adjusted
+
+
+def select_colocalization_scope(
+    sample_table: pd.DataFrame,
+    analysis_scope: str,
+) -> pd.DataFrame:
+    """Select and validate one non-mixed spatial analysis scope."""
+
+    scope = str(analysis_scope)
+    if scope not in VALID_ANALYSIS_SCOPES:
+        raise ValueError("analysis_scope must be within_compartment or whole_sample")
+    required = {"analysis", "source_compartment", "neighbor_compartment"}
+    missing = sorted(required.difference(sample_table.columns))
+    if missing:
+        raise KeyError("Missing analysis-scope columns: " + ", ".join(missing))
+    selected = sample_table.loc[sample_table["analysis"].astype(str).eq(scope)].copy()
+    if selected.empty:
+        raise ValueError(f"No sample-level rows are available for {scope!r}")
+    same_context = (
+        selected["source_compartment"]
+        .astype(str)
+        .eq(selected["neighbor_compartment"].astype(str))
+    )
+    if not same_context.all():
+        raise ValueError(
+            f"{scope} colocalization requires matching source and neighbor contexts"
+        )
+    if scope == "whole_sample":
+        labels = set(selected["source_compartment"].astype(str))
+        if labels != {"all"}:
+            raise ValueError(
+                "whole_sample colocalization rows must use compartment label all"
+            )
+    return selected
 
 
 def summarize_within_condition_colocalization(
@@ -152,9 +187,7 @@ def summarize_within_condition_colocalization(
         continuity,
         np.minimum(1.0 - continuity, work["p_enriched"]),
     )
-    work["_sample_z_enriched"] = norm.isf(
-        work["_p_enriched_for_combination"]
-    )
+    work["_sample_z_enriched"] = norm.isf(work["_p_enriched_for_combination"])
     work["_positive_delta"] = work["delta"].gt(0)
 
     grouped = work.groupby(
@@ -191,12 +224,10 @@ def summarize_within_condition_colocalization(
         how="left",
         validate="one_to_one",
     )
-    summary["stouffer_z_enriched"] = (
-        summary["sum_sample_z_enriched"] / np.sqrt(summary["n_p_values"])
+    summary["stouffer_z_enriched"] = summary["sum_sample_z_enriched"] / np.sqrt(
+        summary["n_p_values"]
     )
-    summary["stouffer_p_enriched"] = norm.sf(
-        summary["stouffer_z_enriched"]
-    )
+    summary["stouffer_p_enriched"] = norm.sf(summary["stouffer_z_enriched"])
 
     ordered = work.loc[
         work["_p_enriched_for_combination"].notna(),
@@ -233,9 +264,8 @@ def summarize_within_condition_colocalization(
         how="left",
         validate="one_to_one",
     )
-    complete = (
-        summary["n_samples"].eq(expected_samples)
-        & summary["n_p_values"].eq(expected_samples)
+    complete = summary["n_samples"].eq(expected_samples) & summary["n_p_values"].eq(
+        expected_samples
     )
     summary["partial_p_enriched_3_of_4"] = np.where(
         complete,
@@ -361,9 +391,9 @@ def build_reciprocal_within_condition_colocalization(
         result = pd.concat([result, self_result], ignore_index=True)
 
     result["is_self_pair"] = result["cell_type_a"].eq(result["cell_type_b"])
-    result["n_samples_min"] = result[
-        ["n_samples_a_to_b", "n_samples_b_to_a"]
-    ].min(axis=1)
+    result["n_samples_min"] = result[["n_samples_a_to_b", "n_samples_b_to_a"]].min(
+        axis=1
+    )
     result["min_positive_samples"] = result[
         ["n_positive_delta_a_to_b", "n_positive_delta_b_to_a"]
     ].min(axis=1)
@@ -438,8 +468,9 @@ def prepare_reciprocal_effect_samples(
     k_value: int,
     min_cells_a: int,
     min_cells_b: int,
+    analysis_scope: str = "within_compartment",
 ) -> pd.DataFrame:
-    """Pair reciprocal sample effects and retain observed coefficients."""
+    """Pair reciprocal sample effects in one spatial analysis scope."""
 
     if k_value < 1:
         raise ValueError("k_value must be at least 1")
@@ -466,7 +497,7 @@ def prepare_reciprocal_effect_samples(
         raise KeyError("Missing reciprocal-effect columns: " + ", ".join(missing))
 
     selected = overlap_table.loc[
-        overlap_table["analysis"].astype(str).eq("within_compartment")
+        overlap_table["analysis"].astype(str).eq(str(analysis_scope))
         & overlap_table["source_compartment"]
         .astype(str)
         .eq(overlap_table["neighbor_compartment"].astype(str))
@@ -510,16 +541,14 @@ def prepare_reciprocal_effect_samples(
         }
     )
     paired["cell_type_pair"] = (
-        paired["cell_type_a"].astype(str)
-        + " ↔ "
-        + paired["cell_type_b"].astype(str)
+        paired["cell_type_a"].astype(str) + " ↔ " + paired["cell_type_b"].astype(str)
     )
-    paired["n_cell_type_a"] = paired[
-        ["n_source_cells_ab", "n_neighbor_cells_ba"]
-    ].min(axis=1)
-    paired["n_cell_type_b"] = paired[
-        ["n_neighbor_cells_ab", "n_source_cells_ba"]
-    ].min(axis=1)
+    paired["n_cell_type_a"] = paired[["n_source_cells_ab", "n_neighbor_cells_ba"]].min(
+        axis=1
+    )
+    paired["n_cell_type_b"] = paired[["n_neighbor_cells_ab", "n_source_cells_ba"]].min(
+        axis=1
+    )
     keep = [
         "condition",
         "sample",
@@ -535,10 +564,14 @@ def prepare_reciprocal_effect_samples(
         "n_cell_type_a",
         "n_cell_type_b",
     ]
-    return paired[keep].sort_values(
-        ["sample", "compartment", "cell_type_a", "cell_type_b"],
-        kind="stable",
-    ).reset_index(drop=True)
+    return (
+        paired[keep]
+        .sort_values(
+            ["sample", "compartment", "cell_type_a", "cell_type_b"],
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
 
 
 @lru_cache(maxsize=1)
@@ -600,14 +633,18 @@ def _run_limma(
     )
     with localconverter(default_converter + pandas2ri.converter):
         result = conversion.rpy2py(result)
-    return pd.DataFrame(result).reset_index(drop=True).rename(
-        columns={
-            "logFC": "contrast_delta",
-            "AveExpr": "average_delta",
-            "P.Value": "limma_p",
-            "adj.P.Val": "limma_q",
-            "B": "log_odds_differential",
-        }
+    return (
+        pd.DataFrame(result)
+        .reset_index(drop=True)
+        .rename(
+            columns={
+                "logFC": "contrast_delta",
+                "AveExpr": "average_delta",
+                "P.Value": "limma_p",
+                "adj.P.Val": "limma_q",
+                "B": "log_odds_differential",
+            }
+        )
     )
 
 
@@ -656,14 +693,12 @@ def _exact_and_stability(
             )
     loo_differences = np.column_stack(loo_differences)
     observed_sign = np.sign(observed)
-    loo_sign_fraction = (
-        np.sign(loo_differences) == observed_sign[:, None]
-    ).mean(axis=1)
-    superiority = (
-        (numerator[:, :, None] > denominator[:, None, :]).mean(axis=(1, 2))
-        + 0.5
-        * (numerator[:, :, None] == denominator[:, None, :]).mean(axis=(1, 2))
+    loo_sign_fraction = (np.sign(loo_differences) == observed_sign[:, None]).mean(
+        axis=1
     )
+    superiority = (numerator[:, :, None] > denominator[:, None, :]).mean(
+        axis=(1, 2)
+    ) + 0.5 * (numerator[:, :, None] == denominator[:, None, :]).mean(axis=(1, 2))
     exact_q = (
         multipletests(exact_p, method="fdr_bh")[1]
         if len(exact_p)
@@ -765,25 +800,18 @@ def run_condition_contrast(
         .dropna()
     )
     if effect_matrix.empty:
-        raise ValueError(
-            f"No complete features for {numerator}_vs_{denominator}"
-        )
-    coefficient_matrix = (
-        contrast_rows.pivot_table(
-            index=feature_keys,
-            columns="sample",
-            values="coefficient",
-            aggfunc="first",
-        )
-        .reindex(index=effect_matrix.index, columns=sample_order)
-    )
+        raise ValueError(f"No complete features for {numerator}_vs_{denominator}")
+    coefficient_matrix = contrast_rows.pivot_table(
+        index=feature_keys,
+        columns="sample",
+        values="coefficient",
+        aggfunc="first",
+    ).reindex(index=effect_matrix.index, columns=sample_order)
     if coefficient_matrix.isna().any().any():
         raise ValueError("Observed coefficients are incomplete for contrast features")
 
     complete_pairs = (
-        effect_matrix.index.droplevel("direction")
-        .unique()
-        .to_frame(index=False)
+        effect_matrix.index.droplevel("direction").unique().to_frame(index=False)
     )
     pair_support = (
         sample_effects.loc[
@@ -827,8 +855,7 @@ def run_condition_contrast(
     count_columns = [
         column
         for column in support_wide.columns
-        if column.startswith("n_cell_type_")
-        or column.startswith("min_n_cell_type_")
+        if column.startswith("n_cell_type_") or column.startswith("min_n_cell_type_")
     ]
     support_wide[count_columns] = support_wide[count_columns].astype("Int64")
     support_wide = support_wide.reset_index()
@@ -912,8 +939,7 @@ def run_condition_contrast(
         values=statistic_columns,
     )
     reciprocal_result.columns = [
-        f"{statistic}_{direction}"
-        for statistic, direction in reciprocal_result.columns
+        f"{statistic}_{direction}" for statistic, direction in reciprocal_result.columns
     ]
     reciprocal_result = reciprocal_result.reset_index().merge(
         support_wide,
@@ -933,14 +959,14 @@ def run_condition_contrast(
     reciprocal_result["both_direction_loo_sign_fraction_min"] = reciprocal_result[
         ["loo_sign_fraction_a_to_b", "loo_sign_fraction_b_to_a"]
     ].min(axis=1)
-    reciprocal_result[
-        "min_direction_max_condition_mean_coefficient"
-    ] = reciprocal_result[
-        [
-            "max_condition_mean_coefficient_a_to_b",
-            "max_condition_mean_coefficient_b_to_a",
-        ]
-    ].min(axis=1)
+    reciprocal_result["min_direction_max_condition_mean_coefficient"] = (
+        reciprocal_result[
+            [
+                "max_condition_mean_coefficient_a_to_b",
+                "max_condition_mean_coefficient_b_to_a",
+            ]
+        ].min(axis=1)
+    )
     reciprocal_result.loc[
         ~reciprocal_result["reciprocal_same_direction"],
         ["both_direction_limma_q_max", "both_direction_exact_p_max"],
@@ -964,9 +990,11 @@ def build_colocalization_tables(
     min_cells_b: int,
     contrasts: Sequence[tuple[str, str]],
     expected_samples: int = 4,
+    analysis_scope: str = "within_compartment",
 ) -> dict[str, Any]:
-    """Build all within-condition and between-condition review tables."""
+    """Build within- and between-condition tables for one spatial scope."""
 
+    sample_table = select_colocalization_scope(sample_table, analysis_scope)
     within_directional = summarize_within_condition_colocalization(
         sample_table,
         min_source_cells=min_cells_a,
@@ -996,6 +1024,7 @@ def build_colocalization_tables(
         k_value=k_value,
         min_cells_a=min_cells_a,
         min_cells_b=min_cells_b,
+        analysis_scope=analysis_scope,
     )
     sample_dict = (
         reciprocal_samples[["condition", "sample"]]
@@ -1043,9 +1072,7 @@ def build_colocalization_tables(
                     result["directional"]["limma_q"].lt(0.05).sum()
                 ),
                 "same_direction_qmax_lt_0.05_pairs": int(
-                    result["reciprocal"]["both_direction_limma_q_max"]
-                    .lt(0.05)
-                    .sum()
+                    result["reciprocal"]["both_direction_limma_q_max"].lt(0.05).sum()
                 ),
             }
             for contrast, result in contrast_results.items()
@@ -1130,9 +1157,7 @@ def write_colocalization_outputs(
     for contrast, result in tables["contrast_results"].items():
         _write_csv_atomic(paths[f"{contrast}_directional"], result["directional"])
         _write_csv_atomic(paths[f"{contrast}_reciprocal"], result["reciprocal"])
-        _write_csv_atomic(
-            paths[f"{contrast}_sample_counts"], result["sample_counts"]
-        )
+        _write_csv_atomic(paths[f"{contrast}_sample_counts"], result["sample_counts"])
 
     payload = dict(manifest)
     payload["outputs"] = {
@@ -1180,7 +1205,9 @@ def load_colocalization_outputs(output_dir: str | Path) -> dict[str, Any]:
         "all_sample_counts": CONTRAST_SAMPLE_COUNTS_FILE,
         "contrast_support": CONTRAST_SUPPORT_FILE,
     }
-    missing = [filename for filename in required.values() if not (root / filename).exists()]
+    missing = [
+        filename for filename in required.values() if not (root / filename).exists()
+    ]
     if missing:
         raise FileNotFoundError(
             "Missing colocalization outputs: "
@@ -1204,18 +1231,20 @@ def load_colocalization_outputs(output_dir: str | Path) -> dict[str, Any]:
         outputs["manifest"] = None
 
     contrast_results = {}
-    contrast_names = outputs["all_directional"]["contrast"].dropna().astype(str).unique()
+    contrast_names = (
+        outputs["all_directional"]["contrast"].dropna().astype(str).unique()
+    )
     for contrast in contrast_names:
         contrast_results[contrast] = {
-            "directional": outputs["all_directional"].loc[
-                outputs["all_directional"]["contrast"].astype(str).eq(contrast)
-            ].reset_index(drop=True),
-            "reciprocal": outputs["all_reciprocal"].loc[
-                outputs["all_reciprocal"]["contrast"].astype(str).eq(contrast)
-            ].reset_index(drop=True),
-            "sample_counts": outputs["all_sample_counts"].loc[
-                outputs["all_sample_counts"]["contrast"].astype(str).eq(contrast)
-            ].reset_index(drop=True),
+            "directional": outputs["all_directional"]
+            .loc[outputs["all_directional"]["contrast"].astype(str).eq(contrast)]
+            .reset_index(drop=True),
+            "reciprocal": outputs["all_reciprocal"]
+            .loc[outputs["all_reciprocal"]["contrast"].astype(str).eq(contrast)]
+            .reset_index(drop=True),
+            "sample_counts": outputs["all_sample_counts"]
+            .loc[outputs["all_sample_counts"]["contrast"].astype(str).eq(contrast)]
+            .reset_index(drop=True),
         }
     outputs["contrast_results"] = contrast_results
     return outputs
@@ -1286,10 +1315,7 @@ def filter_within_condition_colocalization(
     any_cell_types = _filter_values(cell_types_any)
     if any_cell_types is not None:
         filtered = filtered.loc[
-            filtered[cell_type_columns]
-            .astype(str)
-            .isin(any_cell_types)
-            .any(axis=1)
+            filtered[cell_type_columns].astype(str).isin(any_cell_types).any(axis=1)
         ]
 
     for value, column, description in [
@@ -1423,15 +1449,9 @@ def _attach_within_condition_colocalization(
         evidence = evidence.copy()
         source = evidence["source_cell_type"].astype(str)
         neighbor = evidence["neighbor_cell_type"].astype(str)
-        evidence["_cell_type_a_key"] = np.where(
-            source.le(neighbor), source, neighbor
-        )
-        evidence["_cell_type_b_key"] = np.where(
-            source.le(neighbor), neighbor, source
-        )
-        evidence["_direction_key"] = np.where(
-            source.le(neighbor), "a_to_b", "b_to_a"
-        )
+        evidence["_cell_type_a_key"] = np.where(source.le(neighbor), source, neighbor)
+        evidence["_cell_type_b_key"] = np.where(source.le(neighbor), neighbor, source)
+        evidence["_direction_key"] = np.where(source.le(neighbor), "a_to_b", "b_to_a")
         work["_direction_key"] = work["direction"].astype(str)
         metric_columns = [
             "median_delta",
@@ -1498,10 +1518,7 @@ def _attach_within_condition_colocalization(
             & condition_evidence[partial_metric].le(max_partial_q)
         )
         condition_evidence = condition_evidence.rename(
-            columns={
-                column: f"{prefix}_within_{column}"
-                for column in metric_columns
-            }
+            columns={column: f"{prefix}_within_{column}" for column in metric_columns}
         )
         work = work.merge(
             condition_evidence,
@@ -1510,12 +1527,8 @@ def _attach_within_condition_colocalization(
             validate="many_to_one",
         )
 
-    work["colocalized_in_denominator"] = (
-        work["denominator_within_colocalized"].eq(True)
-    )
-    work["colocalized_in_numerator"] = (
-        work["numerator_within_colocalized"].eq(True)
-    )
+    work["colocalized_in_denominator"] = work["denominator_within_colocalized"].eq(True)
+    work["colocalized_in_numerator"] = work["numerator_within_colocalized"].eq(True)
     work["colocalized_in_either_condition"] = work[
         ["colocalized_in_denominator", "colocalized_in_numerator"]
     ].any(axis=1)
@@ -1625,9 +1638,7 @@ def filter_contrast_table(
             filtered[positive_columns].ge(min_positive_samples).all(axis=1)
         ]
     minimum_count_columns = [
-        column
-        for column in filtered.columns
-        if column.startswith("min_n_cell_type_")
+        column for column in filtered.columns if column.startswith("min_n_cell_type_")
     ]
     if min_condition_cells is not None:
         if not minimum_count_columns:
@@ -1852,24 +1863,26 @@ def prepare_directional_contrast_plot(
             source, target = row["cell_type_b"], row["cell_type_a"]
         denominator_coefficient = row["denominator_mean_coefficient"]
         numerator_coefficient = row["numerator_mean_coefficient"]
+        context_label = (
+            "Whole sample"
+            if str(row["analysis"]) == "whole_sample"
+            else "Domain " + str(row["compartment"])
+        )
         records.append(
             {
                 "contrast": contrast,
+                "analysis": str(row["analysis"]),
                 "compartment": str(row["compartment"]),
                 "cell_type_pair": row["cell_type_pair"],
                 "direction": row["direction"],
                 "source_cell_type": str(source),
                 "neighbor_cell_type": str(target),
-                "display_label": (
-                    f"Domain {row['compartment']} · {source} → {target}"
-                ),
+                "display_label": (f"Domain {row['compartment']} · {source} → {target}"),
                 "denominator_condition": denominator,
                 "numerator_condition": numerator,
                 "denominator_mean_coefficient": denominator_coefficient,
                 "numerator_mean_coefficient": numerator_coefficient,
-                "coefficient_change": (
-                    numerator_coefficient - denominator_coefficient
-                ),
+                "coefficient_change": (numerator_coefficient - denominator_coefficient),
                 "denominator_mean_delta": row["denominator_mean_delta"],
                 "numerator_mean_delta": row["numerator_mean_delta"],
                 "contrast_delta": row["contrast_delta"],
@@ -1915,9 +1928,9 @@ def prepare_reciprocal_contrast_plot(
     if filtered.empty:
         raise ValueError(f"No reciprocal rows passed the filters for {contrast!r}")
 
-    filtered["_max_abs_contrast"] = filtered[
-        ["contrast_delta_a_to_b", "contrast_delta_b_to_a"]
-    ].abs().max(axis=1)
+    filtered["_max_abs_contrast"] = (
+        filtered[["contrast_delta_a_to_b", "contrast_delta_b_to_a"]].abs().max(axis=1)
+    )
     if rank_by == "max_abs_contrast":
         filtered = filtered.sort_values(
             ["_max_abs_contrast", "both_direction_exact_p_max"],
@@ -1941,13 +1954,17 @@ def prepare_reciprocal_contrast_plot(
             ("a_to_b", row["cell_type_a"], row["cell_type_b"]),
             ("b_to_a", row["cell_type_b"], row["cell_type_a"]),
         ]:
-            denominator_coefficient = row[
-                f"denominator_mean_coefficient_{direction}"
-            ]
+            denominator_coefficient = row[f"denominator_mean_coefficient_{direction}"]
             numerator_coefficient = row[f"numerator_mean_coefficient_{direction}"]
+            context_label = (
+                "Whole sample"
+                if str(row["analysis"]) == "whole_sample"
+                else "Domain " + str(row["compartment"])
+            )
             records.append(
                 {
                     "contrast": contrast,
+                    "analysis": str(row["analysis"]),
                     "compartment": str(row["compartment"]),
                     "cell_type_pair": row["cell_type_pair"],
                     "direction": direction,
@@ -1966,18 +1983,12 @@ def prepare_reciprocal_contrast_plot(
                     "denominator_mean_delta": row[
                         f"denominator_mean_delta_{direction}"
                     ],
-                    "numerator_mean_delta": row[
-                        f"numerator_mean_delta_{direction}"
-                    ],
+                    "numerator_mean_delta": row[f"numerator_mean_delta_{direction}"],
                     "contrast_delta": row[f"contrast_delta_{direction}"],
-                    "exact_permutation_p": row[
-                        f"exact_permutation_p_{direction}"
-                    ],
+                    "exact_permutation_p": row[f"exact_permutation_p_{direction}"],
                     "limma_q": row[f"limma_q_{direction}"],
                     "loo_sign_fraction": row[f"loo_sign_fraction_{direction}"],
-                    "both_direction_exact_p_max": row[
-                        "both_direction_exact_p_max"
-                    ],
+                    "both_direction_exact_p_max": row["both_direction_exact_p_max"],
                     "both_direction_loo_sign_fraction_min": row[
                         "both_direction_loo_sign_fraction_min"
                     ],
@@ -2281,9 +2292,10 @@ def _plot_contrast_overview(
     max_condition_delta = max(
         0.01,
         float(
-            plot_data[
-                ["denominator_mean_delta", "numerator_mean_delta"]
-            ].abs().max().max()
+            plot_data[["denominator_mean_delta", "numerator_mean_delta"]]
+            .abs()
+            .max()
+            .max()
         ),
     )
     figure.update_xaxes(
@@ -2354,13 +2366,7 @@ def _plot_contrast_overview(
         selection_note = "Rows are ranked by " + ranking_label + "."
     figure.update_layout(
         title={
-            "text": (
-                title
-                + "<br><sup>"
-                + selection_note
-                + reciprocal_note
-                + "</sup>"
-            )
+            "text": (title + "<br><sup>" + selection_note + reciprocal_note + "</sup>")
         },
         template="plotly_white",
         height=max(520, 33 * len(plot_data) + 190),
@@ -2373,9 +2379,7 @@ def _plot_contrast_overview(
             "numerator": numerator,
             "result_kind": result_kind,
             "top_n_relationships": int(top_n),
-            "shown_relationships": int(
-                plot_data["relationship_rank"].nunique()
-            ),
+            "shown_relationships": int(plot_data["relationship_rank"].nunique()),
             "shown_directed_rows": int(len(plot_data)),
             "rank_by": rank_by,
             "filters": {key: value for key, value in filters.items()},

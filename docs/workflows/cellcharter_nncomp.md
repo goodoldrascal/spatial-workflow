@@ -46,7 +46,7 @@ Sample-domain-cell-type combinations are zero-filled, and outputs report both
 total and supporting sample counts so condition means have an explicit support
 interpretation.
 
-The optional directional-overlap contract adds five Parquet files:
+The optional directional-overlap contract adds these Parquet files:
 
 - `label_permutation_plan.parquet`, a reusable deterministic plan keyed by
   permutation, sample, compartment, and endpoint role;
@@ -56,8 +56,12 @@ The optional directional-overlap contract adds five Parquet files:
 - `directional_knn_overlap_permutation.parquet`, with null means and standard
   deviations, deltas, fold enrichment, z-scores, empirical p-values, and FDR;
 - `within_compartment_celltype_overlap_permutation.parquet`, the optimized
-  all-source within-compartment result used for reciprocal cell-type plots,
-  including both `n_source_cells` and `n_neighbor_cells` in each sample-domain.
+  all-source within-compartment result, including both `n_source_cells` and
+  `n_neighbor_cells` in each sample-domain;
+- `whole_sample_celltype_overlap_permutation.parquet`, the optimized all-source
+  result from sample-wide graphs and sample-wide label shuffles; and
+- `whole_sample_label_permutation_plan.parquet`, the deterministic sample-level
+  draw plan used by that whole-sample result.
 
 The compact plan stores one deterministic seed per sample-compartment draw
 rather than one row per cell and permutation. Cell-ID and label-count
@@ -87,9 +91,11 @@ all-source within-compartment table and `condition_overlap` as its condition
 aggregation. Each point pairs A-to-B and B-to-A cell-type z-scores inside the
 same compartment; compartments are grouping and filtering variables, not the
 entities paired on the axes.
-`plot_reciprocal_celltype_overlap` takes the raw all-source table and returns
-sample and condition panels side by side. It defaults to every compartment,
-every A/B cell type, and k=2. An optional compartment selects one context;
+`plot_reciprocal_celltype_overlap` takes one raw all-source table and returns
+sample and condition panels side by side. `analysis_scope="whole_sample"`
+selects the true pooled result; the default remains `within_compartment`.
+Within the latter, `compartment=None` displays every compartment-specific row
+without pooling them. An optional compartment selects one context;
 `cell_types_a` and `cell_types_b` accept one or multiple cell types. Separate
 `min_cells_a` and `min_cells_b` thresholds are applied before matched condition
 means, which must meet `min_samples` per condition. `min_abs_z_score` and

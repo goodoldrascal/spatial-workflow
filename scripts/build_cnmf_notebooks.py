@@ -40,9 +40,31 @@ def _clear_code_output(cell) -> None:
 
 
 def build_run_notebook():
-    """Return the maintained execution notebook unchanged."""
+    """Return the maintained execution notebook with public scope guidance."""
 
-    return apply_notebook_presentation(_load(RUN_NOTEBOOK), "05")
+    notebook = _load(RUN_NOTEBOOK)
+    controls_markdown = _find_cell(
+        notebook,
+        cell_type="markdown",
+        needle="## Analysis and run controls",
+    )
+    if "true no-compartment selection" not in controls_markdown.source:
+        controls_markdown.source += (
+            '\n\n`COMPARTMENTS="all"` is a true no-compartment selection: '
+            "all selected lineage cells are pooled into one cNMF input. An "
+            "explicit list filters the cells first; it does not fit one model "
+            "per compartment."
+        )
+    controls = _find_cell(notebook, cell_type="code", needle="LINEAGE = ")
+    controls.source = controls.source.replace(
+        'COMPARTMENTS = "all"  # e.g. ["0", "3", "7"]',
+        'COMPARTMENTS = "all"  # no compartment filter; or e.g. ["0", "3"]',
+    )
+    controls.source = controls.source.replace(
+        "RUN_SELECTED_CONSENSUS = True",
+        "RUN_SELECTED_CONSENSUS = False",
+    )
+    return apply_notebook_presentation(notebook, "05")
 
 
 def build_inspection_notebook():

@@ -1,8 +1,14 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
 
+import spatial_nncomp as snn
+
 from spatial_workflow.nncomp import (
+    _colocalization_analyses,
+    _compute_reciprocal_celltype_permutations,
     _fresh_output_paths,
     _fresh_overlap_output_paths,
     _validate_manifest_input,
@@ -207,3 +213,77 @@ def test_overlap_only_validates_h5ad_against_accepted_manifest(tmp_path):
             {"input_h5ad": {**manifest["input_h5ad"], "size_bytes": 1}},
             h5ad.resolve(),
         )
+
+
+def test_all_celltype_outputs_include_configured_spatial_scopes(tmp_path):
+    outputs = _fresh_output_paths(
+        tmp_path,
+        include_overlap=True,
+        include_reciprocal_celltypes=True,
+        reciprocal_analyses=["within_compartment", "whole_sample"],
+    )
+
+    assert "within_compartment_celltype_permutation" in outputs
+    assert "whole_sample_celltype_permutation" in outputs
+    assert "whole_sample_label_permutation_plan" in outputs
+
+
+def test_colocalization_analyses_must_match_ranked_edge_scopes():
+    overlap = {
+        "analyses": ["within_compartment"],
+        "reciprocal_cell_types": {"analyses": ["within_compartment", "whole_sample"]},
+    }
+
+    with pytest.raises(ValueError, match="matching nncomp.overlap.analyses"):
+        _colocalization_analyses(overlap)
+
+
+def test_whole_sample_all_pair_null_uses_sample_scope_without_compartments():
+    obs = pd.DataFrame(
+        {
+            "sample": ["s1"] * 4 + ["s2"] * 4,
+            "condition": ["control"] * 4 + ["treated"] * 4,
+            "cell_type": ["A", "B", "A", "B"] * 2,
+            "compartment": ["0", "0", "1", "1"] * 2,
+        },
+        index=[f"cell_{index}" for index in range(8)],
+    )
+    edges = pd.DataFrame(
+        {
+            "candidate_scope": ["sample"] * 8,
+            "source_index": list(range(8)),
+            "neighbor_index": [1, 0, 3, 2, 5, 4, 7, 6],
+            "neighbor_rank": [1] * 8,
+        }
+    )
+    overlap_config = {
+        "k_values": [1],
+        "analyses": ["whole_sample"],
+        "permutation_plan": {"endpoint_roles": ["shared"]},
+        "reciprocal_cell_types": {
+            "analyses": ["whole_sample"],
+            "n_permutations": 3,
+            "workers": 1,
+        },
+    }
+    tables, plans = _compute_reciprocal_celltype_permutations(
+        SimpleNamespace(obs=obs),
+        edges,
+        snn=snn,
+        schema={
+            "sample_key": "sample",
+            "condition_key": "condition",
+            "cell_type_key": "cell_type",
+            "spatial_domain_key": "compartment",
+        },
+        overlap_config=overlap_config,
+        analyses=["whole_sample"],
+    )
+
+    result = tables["whole_sample_celltype_permutation"]
+    assert result["analysis"].unique().tolist() == ["whole_sample"]
+    assert result["source_compartment"].unique().tolist() == ["all"]
+    assert result["permutation_strata"].unique().tolist() == ["sample"]
+    assert set(plans) == {"whole_sample_label_permutation_plan"}
+    plan = plans["whole_sample_label_permutation_plan"]
+    assert plan["compartment"].unique().tolist() == ["all"]

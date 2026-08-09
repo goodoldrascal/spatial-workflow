@@ -100,6 +100,7 @@ nncomp:
       endpoint_roles: [shared, source, target]
     reciprocal_cell_types:
       enabled: true
+      analyses: [within_compartment, whole_sample]
       n_permutations: 1000
       seed: 0
       workers: -1
@@ -118,9 +119,13 @@ remain fixed.
 fingerprints. Use the `shared` role when both ends of an edge must refer to one
 permuted vertex-label assignment, as in NN overlap. The `source` and `target`
 roles are independent streams intended for communication analyses that
-explicitly choose an independent-endpoint null. `reciprocal_cell_types`
-enables the optimized all-source within-compartment summary consumed by the
-reciprocal Plotly panels in Notebook 03.
+explicitly choose an independent-endpoint null. `reciprocal_cell_types` enables optimized all-cell-type summaries for the
+listed analyses. `within_compartment` searches and shuffles labels separately
+inside each sample-domain stratum. `whole_sample` uses a sample-wide neighbor
+graph and shuffles labels across the complete biological sample, without using
+the compartment labels. The artifacts are separate, so a missing whole-sample
+result can be backfilled without recomputing an accepted within-compartment
+result.
 
 Configure reciprocal-review support and the one plotted k value with:
 
@@ -149,6 +154,7 @@ Build the condition-level colocalization tables outside Notebook 04 with:
 ```bash
 python3 scripts/build_colocalization_tables.py \
   --config configs/local.yaml \
+  --analysis-scope whole_sample \
   --overwrite
 ```
 
@@ -157,6 +163,7 @@ The corresponding configuration is:
 ```yaml
 colocalization:
   output_dir: 04_colocalization_analysis
+  analysis_scope: within_compartment
   k: 2
   min_cells_a: 10
   min_cells_b: 10
@@ -169,6 +176,12 @@ colocalization:
   review:
     min_observed_colocalization: 0.05
 ```
+
+`analysis_scope` accepts `within_compartment` or `whole_sample`. The builder
+writes each choice under
+`04_colocalization_analysis/<analysis_scope>/`, so the two estimands cannot be
+silently mixed or overwrite one another. The CLI flag overrides the YAML for a
+single build; Notebook 04 reads the YAML choice.
 
 The builder writes complete, unfiltered result tables. Notebook 04 applies
 `min_observed_colocalization` interactively. For a directional contrast, the
@@ -230,6 +243,10 @@ cnmf:
 ```
 
 Use `all` for every observed domain/condition or a YAML list of exact values.
+For cNMF, `compartments: all` is a true no-compartment filter: the selected
+lineage cells are pooled into one expression-factorization input rather than
+fit separately by domain. cNMF itself does not construct a spatial-neighbor
+graph.
 Every cell type included in a lineage must be listed explicitly. The runner's
 repeatable CLI overrides support one or more cell types and domains while
 requiring a distinct `--analysis-name` for safe custom output naming.

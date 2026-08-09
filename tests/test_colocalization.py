@@ -11,6 +11,7 @@ from spatial_workflow.colocalization import (
     prepare_reciprocal_contrast_plot,
     prepare_reciprocal_effect_samples,
     run_condition_contrast,
+    select_colocalization_scope,
     summarize_within_condition_colocalization,
 )
 
@@ -24,6 +25,7 @@ def _overlap_row(
     *,
     condition="control",
     compartment="3",
+    analysis="within_compartment",
     k=2,
     n_source_cells=20,
     n_neighbor_cells=20,
@@ -32,7 +34,7 @@ def _overlap_row(
     return {
         "condition": condition,
         "sample": sample,
-        "analysis": "within_compartment",
+        "analysis": analysis,
         "k": k,
         "source_compartment": compartment,
         "neighbor_compartment": compartment,
@@ -166,14 +168,10 @@ def test_reciprocal_contrast_plot_pairs_condition_coefficients_with_effects():
     outputs = {
         "manifest": {
             "configuration": {
-                "contrasts": [
-                    {"numerator": "treated", "denominator": "control"}
-                ]
+                "contrasts": [{"numerator": "treated", "denominator": "control"}]
             }
         },
-        "contrast_results": {
-            "treated_vs_control": {"reciprocal": reciprocal}
-        },
+        "contrast_results": {"treated_vs_control": {"reciprocal": reciprocal}},
     }
 
     plot_data = prepare_reciprocal_contrast_plot(
@@ -247,15 +245,11 @@ def test_directional_within_colocalization_gate_keeps_one_way_relationships():
     outputs = {
         "manifest": {
             "configuration": {
-                "contrasts": [
-                    {"numerator": "treated", "denominator": "control"}
-                ]
+                "contrasts": [{"numerator": "treated", "denominator": "control"}]
             }
         },
         "within_directional": within_directional,
-        "contrast_results": {
-            "treated_vs_control": {"directional": directional}
-        },
+        "contrast_results": {"treated_vs_control": {"directional": directional}},
     }
 
     filtered = filter_contrast_table(
@@ -315,10 +309,9 @@ def test_condition_contrast_exposes_adjustable_observed_colocalization_floor(
     sample_effects = pd.DataFrame(rows)
 
     def fake_limma(effect_matrix, conditions, numerator, denominator):
-        contrast = (
-            effect_matrix.iloc[:, 4:].mean(axis=1)
-            - effect_matrix.iloc[:, :4].mean(axis=1)
-        )
+        contrast = effect_matrix.iloc[:, 4:].mean(axis=1) - effect_matrix.iloc[
+            :, :4
+        ].mean(axis=1)
         return pd.DataFrame(
             {
                 "contrast_delta": contrast.to_numpy(),
@@ -348,28 +341,87 @@ def test_condition_contrast_exposes_adjustable_observed_colocalization_floor(
     }
 
     assert sorted(directional["max_condition_mean_coefficient"]) == [0.06, 0.08]
-    assert reciprocal["min_direction_max_condition_mean_coefficient"].tolist() == [
-        0.06
-    ]
-    assert len(
-        filter_contrast_table(
-            outputs,
-            "treated_vs_control",
-            table="directional",
-            min_observed_colocalization=0.07,
+    assert reciprocal["min_direction_max_condition_mean_coefficient"].tolist() == [0.06]
+    assert (
+        len(
+            filter_contrast_table(
+                outputs,
+                "treated_vs_control",
+                table="directional",
+                min_observed_colocalization=0.07,
+            )
         )
-    ) == 1
-    assert len(
-        filter_contrast_table(
-            outputs,
-            "treated_vs_control",
-            table="reciprocal",
-            min_observed_colocalization=0.05,
+        == 1
+    )
+    assert (
+        len(
+            filter_contrast_table(
+                outputs,
+                "treated_vs_control",
+                table="reciprocal",
+                min_observed_colocalization=0.05,
+            )
         )
-    ) == 1
+        == 1
+    )
     assert filter_contrast_table(
         outputs,
         "treated_vs_control",
         table="reciprocal",
         min_observed_colocalization=0.07,
     ).empty
+
+
+def test_whole_sample_scope_is_not_a_mix_of_compartment_rows():
+    rows = [
+        _overlap_row("s1", "A", "B", 0.2, 0.1),
+        _overlap_row(
+            "s1",
+            "A",
+            "B",
+            0.3,
+            0.1,
+            analysis="whole_sample",
+            compartment="all",
+        ),
+    ]
+    selected = select_colocalization_scope(pd.DataFrame(rows), "whole_sample")
+
+    assert selected["analysis"].unique().tolist() == ["whole_sample"]
+    assert selected["source_compartment"].unique().tolist() == ["all"]
+
+
+def test_prepare_reciprocal_effect_samples_supports_whole_sample():
+    overlap = pd.DataFrame(
+        [
+            _overlap_row(
+                "s1",
+                "A",
+                "B",
+                0.20,
+                0.10,
+                analysis="whole_sample",
+                compartment="all",
+            ),
+            _overlap_row(
+                "s1",
+                "B",
+                "A",
+                0.30,
+                0.10,
+                analysis="whole_sample",
+                compartment="all",
+            ),
+        ]
+    )
+
+    paired = prepare_reciprocal_effect_samples(
+        overlap,
+        k_value=2,
+        min_cells_a=10,
+        min_cells_b=10,
+        analysis_scope="whole_sample",
+    )
+
+    assert paired["analysis"].unique().tolist() == ["whole_sample"]
+    assert paired["compartment"].unique().tolist() == ["all"]

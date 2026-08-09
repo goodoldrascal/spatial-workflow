@@ -20,7 +20,10 @@ from spatial_workflow.colocalization import (  # noqa: E402
     write_colocalization_outputs,
 )
 from spatial_workflow.config import load_config, resolve_path  # noqa: E402
-from spatial_workflow.nncomp import RECIPROCAL_CELLTYPE_FILE  # noqa: E402
+from spatial_workflow.nncomp import (  # noqa: E402
+    RECIPROCAL_CELLTYPE_FILE,
+    WHOLE_SAMPLE_CELLTYPE_FILE,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -35,6 +38,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=REPO_ROOT / "configs" / "local.yaml",
         help="Workflow YAML (default: configs/local.yaml).",
+    )
+    parser.add_argument(
+        "--analysis-scope",
+        choices=("within_compartment", "whole_sample"),
+        help="Override colocalization.analysis_scope.",
     )
     parser.add_argument(
         "--output-dir",
@@ -75,7 +83,9 @@ def _configured_contrasts(
     override: list[list[str]] | None,
 ) -> list[tuple[str, str]]:
     if override:
-        return [(str(numerator), str(denominator)) for numerator, denominator in override]
+        return [
+            (str(numerator), str(denominator)) for numerator, denominator in override
+        ]
     configured = settings.get("contrasts", [])
     contrasts = []
     for index, entry in enumerate(configured):
@@ -109,17 +119,27 @@ def main() -> None:
         config["nncomp"]["output_dir"],
         root=results_root,
     )
-    input_path = nncomp_dir / RECIPROCAL_CELLTYPE_FILE
+    analysis_scope = str(
+        args.analysis_scope or settings.get("analysis_scope", "within_compartment")
+    )
+    input_filename = {
+        "within_compartment": RECIPROCAL_CELLTYPE_FILE,
+        "whole_sample": WHOLE_SAMPLE_CELLTYPE_FILE,
+    }[analysis_scope]
+    input_path = nncomp_dir / input_filename
     if not input_path.exists():
         raise FileNotFoundError(
-            f"Missing {input_path}. Run the all-source reciprocal nncomp stage first."
+            f"Missing {input_path}. Run the all-cell-type nncomp stage first."
         )
 
     output_value = args.output_dir or settings.get(
         "output_dir", "04_colocalization_analysis"
     )
-    output_dir = resolve_path(config_path, output_value, root=results_root)
-    k_value = int(args.k if args.k is not None else settings.get("k", review.get("overlap_k", 2)))
+    output_root = resolve_path(config_path, output_value, root=results_root)
+    output_dir = output_root / analysis_scope
+    k_value = int(
+        args.k if args.k is not None else settings.get("k", review.get("overlap_k", 2))
+    )
     min_cells_a = int(
         args.min_cells_a
         if args.min_cells_a is not None
@@ -143,6 +163,7 @@ def main() -> None:
         min_cells_b=min_cells_b,
         contrasts=contrasts,
         expected_samples=expected_samples,
+        analysis_scope=analysis_scope,
     )
     input_stat = input_path.stat()
     manifest = {
@@ -156,6 +177,7 @@ def main() -> None:
             "rows": int(len(sample_table)),
         },
         "configuration": {
+            "analysis_scope": analysis_scope,
             "k": k_value,
             "min_cells_a": min_cells_a,
             "min_cells_b": min_cells_b,
@@ -167,9 +189,7 @@ def main() -> None:
         },
         "contrast_colocalization_filter": {
             "metric_directional": "max_condition_mean_coefficient",
-            "metric_reciprocal": (
-                "min_direction_max_condition_mean_coefficient"
-            ),
+            "metric_reciprocal": ("min_direction_max_condition_mean_coefficient"),
             "note": (
                 "The complete tables are unfiltered. Notebook review applies an "
                 "adjustable observed-coefficient floor after loading."
